@@ -1,0 +1,8 @@
+<RCC>
+    <qresource prefix="/">
+        <file>main.qml</file>
+        <file>Content/SettingArea.qml</file>
+        <file>Content/VideoArea.qml</file>
+        <file>Component/ShadowRect.qml</file>
+    </qresource>
+</RCC>
