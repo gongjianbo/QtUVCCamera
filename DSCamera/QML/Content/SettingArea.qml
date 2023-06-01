@@ -19,6 +19,15 @@ ColumnLayout {
             var ret = cameraCore.selectDevice(device_box.currentIndex)
             console.log("select", device_box.currentText, ret)
         }
+        Connections {
+            target: cameraCore
+            // 如插入设备后顺序变化
+            function onDeviceIndexChanged() {
+                if (cameraCore.deviceIndex != device_box.currentIndex) {
+                    device_box.currentIndex = cameraCore.deviceIndex
+                }
+            }
+        }
     }
 
     Button {

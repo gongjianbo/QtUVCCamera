@@ -3,6 +3,7 @@
 #include <QQuickWindow>
 #include "CameraInfo.h"
 #include "CameraProbe.h"
+#include "CameraHotplug.h"
 #include "CameraView.h"
 
 // Camera 具体操作
@@ -11,7 +12,9 @@ class CameraCore : public QObject
     Q_OBJECT
     Q_PROPERTY(CameraInfo* info READ getInfo CONSTANT)
     Q_PROPERTY(CameraProbe* probe READ getProbe CONSTANT)
+    Q_PROPERTY(CameraHotplug* hotplug READ getHotplug CONSTANT)
     Q_PROPERTY(int state READ getState NOTIFY stateChanged)
+    Q_PROPERTY(int deviceIndex READ getDeviceIndex NOTIFY deviceIndexChanged)
     Q_PROPERTY(QSize resolution READ getResolution NOTIFY formatChanged)
 public:
     // 相机工作状态
@@ -33,10 +36,16 @@ public:
     CameraInfo *getInfo();
     // 拍图和录制
     CameraProbe *getProbe();
+    // 热插拔
+    CameraHotplug *getHotplug();
 
     // 相机工作状态
     int getState() const;
     void setState(int newState);
+
+    // 当前设备选择
+    int getDeviceIndex() const;
+    void setDeviceIndex(int index);
 
     // 分辨率
     QSize getResolution() const;
@@ -64,7 +73,11 @@ public:
 signals:
     // 新的图像到来
     void imageComing(const QImage &img);
+    // 播放/停止状态变化
     void stateChanged(int newState);
+    // 设备选择
+    void deviceIndexChanged();
+    // 格式设置
     void formatChanged();
 
 private:
@@ -82,6 +95,8 @@ private:
     CameraInfo info;
     // 拍图和录制
     CameraProbe probe;
+    // 热插拔检测
+    CameraHotplug hotplug;
     // 当前播放状态
     CameraState state{Stopped};
     // 弹出设置界面时绑定当前窗口模态显示
@@ -110,7 +125,7 @@ private:
         // valid=true保存了参数设置，打开设备时进行设置
         bool valid{false};
         // 设备选择序号
-        int deviceIndex{0};
+        int deviceIndex{-1};
         // 尺寸
         int width{0};
         int height{0};

@@ -21,6 +21,36 @@ CameraCore::CameraCore(QObject *parent)
     };
     setCallback(preview_callback, still_callback);
 
+    // 检测摄像头热插拔
+    hotplug.init(QVector<QUuid>() << QUuid(0x65E8773DL, 0x8F56, 0x11D0, 0xA3, 0xB9, 0x00, 0xA0, 0xC9, 0x22, 0x31, 0x96));
+    // 插入设备刷新列表
+    connect(&hotplug, &CameraHotplug::deviceAttached, this, [this](){
+            auto device_list = info.getDeviceList();
+            int index = getDeviceIndex();
+            if (index < 0 || index >= device_list.size()) {
+                info.updateDeviceList();
+                if (info.getDeviceList().size() > 0) {
+                    selectDevice(0);
+                }
+                return;
+            }
+            CameraDevice device = device_list.at(index);
+            // 更新设备列表
+            info.updateDeviceList();
+            device_list = info.getDeviceList();
+            for (int i = 0; i < device_list.size(); i++)
+            {
+                if (device_list.at(i).displayName == device.displayName) {
+                    // TODO 检测之前是否拔出，不然每插一个都重新加载
+                    selectDevice(i);
+                    break;
+                }
+            }
+            emit deviceIndexChanged();
+        }, Qt::QueuedConnection);
+    // 移除设备暂不处理
+    // connect(&hotplug, &CameraHotplug::deviceDetached, this, [this](){}, Qt::QueuedConnection);
+
     // 初始化设备信息，默认选中一个设备
     info.updateDeviceList();
     if (info.getDeviceList().size() > 0) {
@@ -44,6 +74,11 @@ CameraProbe *CameraCore::getProbe()
     return &probe;
 }
 
+CameraHotplug *CameraCore::getHotplug()
+{
+    return &hotplug;
+}
+
 int CameraCore::getState() const
 {
     return state;
@@ -54,6 +89,19 @@ void CameraCore::setState(int newState)
     if (state != newState) {
         state = (CameraCore::CameraState)newState;
         emit stateChanged(state);
+    }
+}
+
+int CameraCore::getDeviceIndex() const
+{
+    return mSetting.deviceIndex;
+}
+
+void CameraCore::setDeviceIndex(int index)
+{
+    if (mSetting.deviceIndex != index) {
+        mSetting.deviceIndex = index;
+        emit deviceIndexChanged();
     }
 }
 
@@ -92,7 +140,7 @@ bool CameraCore::selectDevice(int index)
     // https://github.com/GoodRon/QtWebcam
     // 衍生版本：https://gitee.com/fsfzp888/UVCCapture
     mSetting.isJpg = !(pid == 0x5000 || pid == 0x7585);
-    mSetting.deviceIndex = index;
+    setDeviceIndex(index);
     // 释放当前
     releaseGraph();
 
@@ -554,7 +602,7 @@ void CameraCore::formatSetting()
         }
 
         DeleteMediaType(pmt);
-        selectDevice(mSetting.deviceIndex);
+        selectDevice(getDeviceIndex());
     }
     stream_config->Release();
 }

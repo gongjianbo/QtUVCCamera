@@ -1,5 +1,6 @@
 HEADERS += \
     $$PWD/CameraCore.h \
+    $$PWD/CameraHotplug.h \
     $$PWD/CameraInfo.h \
     $$PWD/CameraProbe.h \
     $$PWD/CameraRegister.h \
@@ -9,6 +10,7 @@ HEADERS += \
 
 SOURCES += \
     $$PWD/CameraCore.cpp \
+    $$PWD/CameraHotplug.cpp \
     $$PWD/CameraInfo.cpp \
     $$PWD/CameraProbe.cpp \
     $$PWD/CameraRegister.cpp \
