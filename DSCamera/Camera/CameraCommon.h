@@ -1,6 +1,7 @@
 #pragma once
 #include <QVector>
 #include <QList>
+#include <QUuid>
 #include <QImage>
 #include <memory>
 #include <atomic>

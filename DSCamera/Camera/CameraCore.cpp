@@ -131,15 +131,6 @@ bool CameraCore::selectDevice(int index)
     if (index < 0 || index >= device_list.size())
         return false;
     CameraDevice device = device_list.at(index);
-    quint16 vid, pid;
-    if (!CameraInfo::getVidPid(device.displayName, vid, pid)) {
-        return false;
-    }
-    // 根据 vid pid 区分设备，公司老的设备不支持jpg
-    // 目前我只需要转 jpg 和 rgb，其他的原生格式解析可以参考：
-    // https://github.com/GoodRon/QtWebcam
-    // 衍生版本：https://gitee.com/fsfzp888/UVCCapture
-    mSetting.isJpg = !(pid == 0x5000 || pid == 0x7585);
     setDeviceIndex(index);
     // 释放当前
     releaseGraph();
@@ -195,7 +186,6 @@ bool CameraCore::selectDevice(int index)
     if (FAILED(hr))
         return false;
 
-    // MFC版用到，暂时移除
     // hr = ::CoCreateInstance(CLSID_EZrgb24, 0, CLSCTX_INPROC_SERVER, IID_IBaseFilter, reinterpret_cast<void **>(&mTransformFilter));
     if (!bindFilter(device.displayName))
         return false;
@@ -216,27 +206,12 @@ bool CameraCore::selectDevice(int index)
     if (FAILED(hr))
         return false;
 
-    // 设置格式
+    // 先设置一下后面才能生效
     AM_MEDIA_TYPE amt = {0};
     amt.majortype = MEDIATYPE_Video;
-    amt.subtype = mSetting.isJpg ? MEDIASUBTYPE_MJPG : MEDIASUBTYPE_RGB32;
+    amt.subtype = MEDIASUBTYPE_RGB32;
     amt.formattype = FORMAT_VideoInfo;
     hr = mPreviewGrabber->SetMediaType(&amt);
-    if (FAILED(hr)) {
-        return false;
-    }
-    // 回调函数 0-调用SampleCB 1-BufferCB
-    mPreviewGrabber->SetCallback(&mPreviewCallback, 1);
-    if (FAILED(hr))
-        return false;
-
-    hr = mStillGrabber->SetMediaType(&amt);
-    if (FAILED(hr))
-        return false;
-    mStillGrabber->SetOneShot(false);
-    mStillGrabber->SetBufferSamples(true);
-    // 回调函数 0-调用SampleCB 1-BufferCB
-    mStillGrabber->SetCallback(&mStillCallback, 1);
     if (FAILED(hr))
         return false;
 
@@ -244,18 +219,41 @@ bool CameraCore::selectDevice(int index)
     if (mSetting.valid) {
         setFormat(mSetting.width, mSetting.height, mSetting.avgTime);
         mSetting.valid = false;
+    } else {
+        // 初始化格式
+        setFormat(-1, -1, -1);
     }
     // RenderStream最后一个参数为空会弹出activemovie窗口显示预览视频
-    // 此处设置PIN_CATEGORY_PREVIEW只能预览，没法在格式设置界面设置
     hr = mBuilder->RenderStream(&PIN_CATEGORY_CAPTURE, &MEDIATYPE_Video,
                                 mSourceFilter, mPreviewFilter, mPreviewNull);
     if (FAILED(hr))
         return false;
 
-    hr = mBuilder->RenderStream(&PIN_CATEGORY_STILL, &MEDIATYPE_Video,
-                                mSourceFilter, mStillFilter, mStillNull);
+    mPreviewGrabber->SetOneShot(false);
+    mPreviewGrabber->SetBufferSamples(false);
+    // 回调函数 0-调用SampleCB 1-BufferCB
+    mPreviewGrabber->SetCallback(&mPreviewCallback, 1);
     if (FAILED(hr))
         return false;
+    // 设置格式
+    amt.subtype = mSetting.isJpg ? MEDIASUBTYPE_MJPG : MEDIASUBTYPE_RGB32;
+    hr = mPreviewGrabber->SetMediaType(&amt);
+    if (FAILED(hr))
+        return false;
+
+    mStillGrabber->SetOneShot(false);
+    mStillGrabber->SetBufferSamples(true);
+    // 回调函数 0-调用SampleCB 1-BufferCB
+    mStillGrabber->SetCallback(&mStillCallback, 1);
+    if (FAILED(hr))
+        return false;
+    // amt.subtype = MEDIASUBTYPE_RGB32;
+    hr = mStillGrabber->SetMediaType(&amt);
+    if (FAILED(hr))
+        return false;
+    // still render可能失败，不判断返回值
+    mBuilder->RenderStream(&PIN_CATEGORY_STILL, &MEDIATYPE_Video,
+                           mSourceFilter, mStillFilter, mStillNull);
 
     return play();
 }
@@ -284,15 +282,32 @@ bool CameraCore::setFormat(int width, int height, int avgTime)
     // 设置分辨率，如果无效的话似乎会使用默认值
     if (SUCCEEDED(hr) && amt && amt->pbFormat) {
         VIDEOINFOHEADER *vih = reinterpret_cast<VIDEOINFOHEADER *>(amt->pbFormat);
-        vih->bmiHeader.biWidth = width;
-        vih->bmiHeader.biHeight = height;
-        // int fps = qRound(10000000.0 / pvi->AvgTimePerFrame);
-        vih->AvgTimePerFrame = avgTime;
+        if (width > 0 && height > 0) {
+            vih->bmiHeader.biWidth = width;
+            vih->bmiHeader.biHeight = height;
+        } else {
+            width = vih->bmiHeader.biWidth;
+            height = vih->bmiHeader.biHeight;
+        }
+        if (avgTime > 0) {
+            // int fps = qRound(10000000.0 / pvi->AvgTimePerFrame);
+            vih->AvgTimePerFrame = avgTime;
+        } else {
+            avgTime = vih->AvgTimePerFrame;
+        }
+        // 目前我只需要转 jpg 和 rgb，其他的原生格式解析可以参考：
+        // https://github.com/GoodRon/QtWebcam
+        // 衍生版本：https://gitee.com/fsfzp888/UVCCapture
+        if (amt->subtype != MEDIASUBTYPE_MJPG) {
+            mSetting.isJpg = false;
+        } else {
+            mSetting.isJpg = true;
+        }
         hr = stream_config->SetFormat(amt);
         if (SUCCEEDED(hr)) {
             ret = true;
         }
-        qDebug()<<__FUNCTION__<<hr<<width<<height<<avgTime;
+        qDebug()<<__FUNCTION__<<hr<<width<<height<<(mSetting.isJpg ? "jpg" : "rgb")<<avgTime;
         DeleteMediaType(amt);
     }
     SAFE_RELEASE(stream_config);
@@ -304,7 +319,9 @@ bool CameraCore::play()
     if (mGraph && mMediaControl && mPreviewGrabber) {
         if (SUCCEEDED(mMediaControl->Run())) {
             AM_MEDIA_TYPE amt = {0};
-            mPreviewGrabber->GetConnectedMediaType(&amt);
+            HRESULT hr = mPreviewGrabber->GetConnectedMediaType(&amt);
+            if (FAILED(hr))
+                return false;
             VIDEOINFOHEADER *vih = reinterpret_cast<VIDEOINFOHEADER *>(amt.pbFormat);
             if (vih != NULL)
             {
@@ -600,7 +617,6 @@ void CameraCore::formatSetting()
                 qDebug()<<__FUNCTION__<<width<<height<<avg_time;
             }
         }
-
         DeleteMediaType(pmt);
         selectDevice(getDeviceIndex());
     }
