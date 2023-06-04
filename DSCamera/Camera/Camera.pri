@@ -1,4 +1,5 @@
 HEADERS += \
+    $$PWD/CameraControl.h \
     $$PWD/CameraCore.h \
     $$PWD/CameraHotplug.h \
     $$PWD/CameraInfo.h \
@@ -9,6 +10,7 @@ HEADERS += \
     $$PWD/SampleGrabber.h
 
 SOURCES += \
+    $$PWD/CameraControl.cpp \
     $$PWD/CameraCore.cpp \
     $$PWD/CameraHotplug.cpp \
     $$PWD/CameraInfo.cpp \

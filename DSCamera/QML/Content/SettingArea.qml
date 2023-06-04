@@ -14,17 +14,17 @@ ColumnLayout {
         id: device_box
         height: 32
         Layout.fillWidth: true
-        model: cameraCore.info.friendlyNames
+        model: cameraCtrl.info.friendlyNames
         onActivated: {
-            var ret = cameraCore.selectDevice(device_box.currentIndex)
+            var ret = cameraCtrl.selectDevice(device_box.currentIndex)
             console.log("select", device_box.currentText, ret)
         }
         Connections {
-            target: cameraCore
+            target: cameraCtrl
             // 如插入设备后顺序变化
             function onDeviceIndexChanged() {
-                if (cameraCore.deviceIndex != device_box.currentIndex) {
-                    device_box.currentIndex = cameraCore.deviceIndex
+                if (cameraCtrl.deviceIndex != device_box.currentIndex) {
+                    device_box.currentIndex = cameraCtrl.deviceIndex
                 }
             }
         }
@@ -48,7 +48,7 @@ ColumnLayout {
                 }
 
                 device_box.currentIndex = index
-                var ret = cameraCore.selectDevice(device_box.currentIndex)
+                var ret = cameraCtrl.selectDevice(device_box.currentIndex)
                 console.log("select", device_box.currentText, ret)
             }
         }
@@ -57,14 +57,14 @@ ColumnLayout {
     Button {
         text: "设置设备"
         onClicked: {
-            cameraCore.popDeviceSetting(Window.window)
+            cameraCtrl.popDeviceSetting(Window.window)
         }
     }
 
     Button {
         text: "设置格式"
         onClicked: {
-            cameraCore.popFormatSetting(Window.window)
+            cameraCtrl.popFormatSetting(Window.window)
         }
     }
 
@@ -73,19 +73,19 @@ ColumnLayout {
         Button {
             text: "播放"
             onClicked: {
-                cameraCore.play()
+                cameraCtrl.play()
             }
         }
         Button {
             text: "暂停"
             onClicked: {
-                cameraCore.pause()
+                cameraCtrl.pause()
             }
         }
         Button {
             text: "停止"
             onClicked: {
-                cameraCore.stop()
+                cameraCtrl.stop()
             }
         }
     }
@@ -95,13 +95,13 @@ ColumnLayout {
         Button {
             text: "拍图"
             onClicked: {
-                cameraCore.probe.capture()
+                cameraCtrl.probe.capture()
             }
         }
         Button {
             text: "查看图片"
             onClicked: {
-                cameraCore.probe.openCacheDir()
+                cameraCtrl.probe.openCacheDir()
             }
         }
     }

@@ -14,7 +14,7 @@ Item {
             id: camera_view
             anchors.fill: parent
             Component.onCompleted: {
-                cameraCore.attachView(camera_view)
+                cameraCtrl.attachView(camera_view)
             }
         }
     }
@@ -28,7 +28,7 @@ Item {
             color: "#D7D7D7"
             Label {
                 anchors.centerIn: parent
-                text: "Size: " + cameraCore.resolution.width + "×" + cameraCore.resolution.height
+                text: "Size: " + cameraCtrl.resolution.width + "×" + cameraCtrl.resolution.height
             }
         }
         ShadowRect {

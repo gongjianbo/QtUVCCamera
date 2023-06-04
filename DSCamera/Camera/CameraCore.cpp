@@ -3,59 +3,7 @@
 #include <QDebug>
 
 CameraCore::CameraCore(QObject *parent)
-    : QObject{parent}
 {
-    // 视频预览回调
-    auto preview_callback = [this](const QImage &img){
-        // static int i = 0;
-        // qDebug()<<"grabber"<<i++<<QTime::currentTime()<<img.isNull()<<img.size()<<img.bytesPerLine()<<img.format();
-        QMetaObject::invokeMethod(this, "imageComing", Qt::QueuedConnection,
-                                  Q_ARG(QImage, img));
-        probe.previewUpdate(img);
-    };
-    // 物理按键拍图回调
-    auto still_callback = [this](const QImage &img){
-        static int i = 0;
-        qDebug()<<"still"<<i++<<QTime::currentTime()<<img.isNull()<<img.size();
-        probe.stillUpdate(img);
-    };
-    setCallback(preview_callback, still_callback);
-
-    // 检测摄像头热插拔
-    hotplug.init(QVector<QUuid>() << QUuid(0x65E8773DL, 0x8F56, 0x11D0, 0xA3, 0xB9, 0x00, 0xA0, 0xC9, 0x22, 0x31, 0x96));
-    // 插入设备刷新列表
-    connect(&hotplug, &CameraHotplug::deviceAttached, this, [this](){
-            auto device_list = info.getDeviceList();
-            int index = getDeviceIndex();
-            if (index < 0 || index >= device_list.size()) {
-                info.updateDeviceList();
-                if (info.getDeviceList().size() > 0) {
-                    selectDevice(0);
-                }
-                return;
-            }
-            CameraDevice device = device_list.at(index);
-            // 更新设备列表
-            info.updateDeviceList();
-            device_list = info.getDeviceList();
-            for (int i = 0; i < device_list.size(); i++)
-            {
-                if (device_list.at(i).displayName == device.displayName) {
-                    // TODO 检测之前是否拔出，不然每插一个都重新加载
-                    selectDevice(i);
-                    break;
-                }
-            }
-            emit deviceIndexChanged();
-        }, Qt::QueuedConnection);
-    // 移除设备暂不处理
-    // connect(&hotplug, &CameraHotplug::deviceDetached, this, [this](){}, Qt::QueuedConnection);
-
-    // 初始化设备信息，默认选中一个设备
-    info.updateDeviceList();
-    if (info.getDeviceList().size() > 0) {
-        selectDevice(0);
-    }
 }
 
 CameraCore::~CameraCore()
@@ -64,58 +12,14 @@ CameraCore::~CameraCore()
     releaseGraph();
 }
 
-CameraInfo *CameraCore::getInfo()
+int CameraCore::getCurWidth() const
 {
-    return &info;
+    return mSetting.width;
 }
 
-CameraProbe *CameraCore::getProbe()
+int CameraCore::getCurHeight() const
 {
-    return &probe;
-}
-
-CameraHotplug *CameraCore::getHotplug()
-{
-    return &hotplug;
-}
-
-int CameraCore::getState() const
-{
-    return state;
-}
-
-void CameraCore::setState(int newState)
-{
-    if (state != newState) {
-        state = (CameraCore::CameraState)newState;
-        emit stateChanged(state);
-    }
-}
-
-int CameraCore::getDeviceIndex() const
-{
-    return mSetting.deviceIndex;
-}
-
-void CameraCore::setDeviceIndex(int index)
-{
-    if (mSetting.deviceIndex != index) {
-        mSetting.deviceIndex = index;
-        emit deviceIndexChanged();
-    }
-}
-
-QSize CameraCore::getResolution() const
-{
-    return QSize(mSetting.width, mSetting.height);
-}
-
-void CameraCore::attachView(CameraView *view)
-{
-    if (!view) {
-        return;
-    }
-    connect(this, &CameraCore::imageComing, view, &CameraView::updateImage, Qt::QueuedConnection);
+    return mSetting.height;
 }
 
 void CameraCore::setCallback(const std::function<void (const QImage &)> &previewCB,
@@ -125,13 +29,8 @@ void CameraCore::setCallback(const std::function<void (const QImage &)> &preview
     mStillCallback.callback = stillCB;
 }
 
-bool CameraCore::selectDevice(int index)
+bool CameraCore::openDevice(const CameraDevice &device)
 {
-    auto device_list = info.getDeviceList();
-    if (index < 0 || index >= device_list.size())
-        return false;
-    CameraDevice device = device_list.at(index);
-    setDeviceIndex(index);
     // 释放当前
     releaseGraph();
 
@@ -255,7 +154,7 @@ bool CameraCore::selectDevice(int index)
     mBuilder->RenderStream(&PIN_CATEGORY_STILL, &MEDIATYPE_Video,
                            mSourceFilter, mStillFilter, mStillNull);
 
-    return play();
+    return true;
 }
 
 bool CameraCore::setFormat(int width, int height, int avgTime)
@@ -341,13 +240,10 @@ bool CameraCore::play()
                 mStillCallback.isJpg = mSetting.isJpg;
                 mStillCallback.running = true;
 
-                probe.reset();
-                setState(Playing);
 
                 mSetting.width = width;
                 mSetting.height = height;
                 mSetting.avgTime = avg_time;
-                emit formatChanged();
                 return true;
             }
         }
@@ -358,10 +254,7 @@ bool CameraCore::play()
 bool CameraCore::pause()
 {
     if (mGraph && mMediaControl) {
-        if (SUCCEEDED(mMediaControl->Pause())) {
-            setState(Paused);
-            return true;
-        }
+        return SUCCEEDED(mMediaControl->Pause());
     }
     return false;
 }
@@ -369,37 +262,15 @@ bool CameraCore::pause()
 bool CameraCore::stop()
 {
     if (mGraph && mMediaControl) {
-        if (SUCCEEDED(mMediaControl->Stop())) {
-            setState(Stopped);
-            return true;
-        }
+        return SUCCEEDED(mMediaControl->Stop());
     }
     return false;
-}
-
-void CameraCore::popDeviceSetting(QQuickWindow *window)
-{
-    if (!window) {
-        return;
-    }
-    winHandle = (HWND)window->winId();
-    QMetaObject::invokeMethod(this, "deviceSetting", Qt::QueuedConnection);
-}
-
-void CameraCore::popFormatSetting(QQuickWindow *window)
-{
-    if (!window) {
-        return;
-    }
-    winHandle = (HWND)window->winId();
-    QMetaObject::invokeMethod(this, "formatSetting", Qt::QueuedConnection);
 }
 
 void CameraCore::releaseGraph()
 {
     mPreviewCallback.running = false;
     mStillCallback.running = false;
-    probe.reset();
     if (mMediaControl) {
         mMediaControl->Stop();
     }
@@ -435,7 +306,6 @@ void CameraCore::releaseGraph()
     SAFE_RELEASE(mPreviewGrabber);
     SAFE_RELEASE(mBuilder);
     SAFE_RELEASE(mGraph);
-    setState(Stopped);
 }
 
 bool CameraCore::bindFilter(const QString &deviceName)
@@ -548,29 +418,32 @@ void CameraCore::freePin(IGraphBuilder *inGraph, IBaseFilter *inFilter) const
     }
 }
 
-void CameraCore::deviceSetting()
+bool CameraCore::deviceSetting(HWND winId)
 {
-    if (getState() == Stopped || !mSourceFilter || !winHandle)
-        return;
+    if (!mSourceFilter)
+        return false;
+
     ISpecifyPropertyPages *prop_pages = NULL;
     if (S_OK == mSourceFilter->QueryInterface(IID_ISpecifyPropertyPages, reinterpret_cast<void **>(&prop_pages)))
     {
         CAUUID cauuid;
         prop_pages->GetPages(&cauuid);
-        ::OleCreatePropertyFrame(winHandle, 30, 30, NULL, 1,
+        ::OleCreatePropertyFrame(winId, 30, 30, NULL, 1,
                                  reinterpret_cast<IUnknown **>(&mSourceFilter),
                                  cauuid.cElems,
                                  reinterpret_cast<GUID *>(cauuid.pElems),
                                  0, 0, NULL);
         ::CoTaskMemFree(cauuid.pElems);
         prop_pages->Release();
+        return true;
     }
+    return false;
 }
 
-void CameraCore::formatSetting()
+bool CameraCore::formatSetting(HWND winId)
 {
-    if (getState() == Stopped || !mGraph || !mSourceFilter || !winHandle)
-        return;
+    if (!mGraph || !mSourceFilter)
+        return false;;
 
     HRESULT hr = S_FALSE;
     IAMStreamConfig *stream_config = NULL;
@@ -581,19 +454,20 @@ void CameraCore::formatSetting()
                                      IID_IAMStreamConfig, reinterpret_cast<void **>(&stream_config));
     }
     if (FAILED(hr) || !stream_config) {
-        return;
+        return false;
     }
 
     ISpecifyPropertyPages *prop_pages = NULL;
     CAUUID cauuid;
+    bool ret = false;
     if (S_OK == stream_config->QueryInterface(IID_ISpecifyPropertyPages, reinterpret_cast<void**>(&prop_pages)))
     {
-        stop();
+        // 先停止，这一步放到了调用CameraCore::formatSetting前，重新打开放到了调用后
         // 这里不断开filter有的设备没法设置
         freePin(mGraph, mSourceFilter);
 
         prop_pages->GetPages(&cauuid);
-        ::OleCreatePropertyFrame(winHandle, 30, 30, NULL, 1,
+        ::OleCreatePropertyFrame(winId, 30, 30, NULL, 1,
                                  reinterpret_cast<IUnknown **>(&stream_config),
                                  cauuid.cElems,
                                  reinterpret_cast<GUID *>(cauuid.pElems),
@@ -615,10 +489,11 @@ void CameraCore::formatSetting()
                 mSetting.avgTime = avg_time;
                 mSetting.valid = true;
                 qDebug()<<__FUNCTION__<<width<<height<<avg_time;
+                ret = true;
             }
         }
         DeleteMediaType(pmt);
-        selectDevice(getDeviceIndex());
     }
     stream_config->Release();
+    return ret;
 }
