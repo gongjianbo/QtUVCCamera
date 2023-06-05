@@ -87,7 +87,8 @@ public:
                 // 默认是yuv，directshow转成rgb就上下翻转了
                 img = img.mirrored(false, true);
             } else {
-                return S_OK;
+                // 有的设置转成rgb会一直触发stillpin
+                return S_FALSE;
             }
             callback(img);
         }

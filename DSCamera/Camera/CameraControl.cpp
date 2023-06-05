@@ -38,15 +38,18 @@ CameraControl::CameraControl(QObject *parent)
             // 更新设备列表
             info.updateDeviceList();
             device_list = info.getDeviceList();
+            if (device_list.isEmpty())
+                return;
+            int select = 0;
             for (int i = 0; i < device_list.size(); i++)
             {
                 if (device_list.at(i).displayName == device.displayName) {
-                    // TODO 检测之前是否拔出，不然每插一个都重新加载
-                    selectDevice(i);
+                    select = i;
                     break;
                 }
             }
-            emit deviceIndexChanged();
+            // TODO 检测之前是否拔出，不然每插一个都重新加载
+            selectDevice(select);
         }, Qt::QueuedConnection);
     // 移除设备暂不处理
     // connect(&hotplug, &CameraHotplug::deviceDetached, this, [this](){}, Qt::QueuedConnection);

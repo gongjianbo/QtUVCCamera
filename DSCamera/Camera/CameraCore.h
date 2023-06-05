@@ -20,6 +20,8 @@ public:
 
     // 打开设备
     bool openDevice(const CameraDevice &device);
+    // 查询格式
+    bool getType(GUID &type);
     // 设置分辨率、帧率等格式，编码目前固定
     bool setFormat(int width, int height, int avgTime = 30);
 
@@ -70,7 +72,5 @@ private:
         // 多久一帧，单位100ns纳秒，如果1秒30帧，就是0.0333333秒一帧
         // 换算成100ns单位就是0.0333333 * 1000 * 1000 * 10 = 333333
         int avgTime = 333333;
-        // 目前只用到了jpg和rgb32两种格式
-        bool isJpg{false};
     } mSetting;
 };

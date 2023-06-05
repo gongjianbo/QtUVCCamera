@@ -105,10 +105,21 @@ bool CameraCore::openDevice(const CameraDevice &device)
     if (FAILED(hr))
         return false;
 
+    // 初始不是jpg的全部用rgb，但是会影响非jpg的still pin
+    GUID sub_type;
+    bool is_jpg = false;
+    if (getType(sub_type)) {
+        if (sub_type == MEDIASUBTYPE_MJPG) {
+            is_jpg = true;
+        }
+    }
+    if (!is_jpg) {
+        sub_type = MEDIASUBTYPE_RGB32;
+    }
     // 先设置一下后面才能生效
     AM_MEDIA_TYPE amt = {0};
     amt.majortype = MEDIATYPE_Video;
-    amt.subtype = MEDIASUBTYPE_RGB32;
+    amt.subtype = sub_type;
     amt.formattype = FORMAT_VideoInfo;
     hr = mPreviewGrabber->SetMediaType(&amt);
     if (FAILED(hr))
@@ -131,11 +142,14 @@ bool CameraCore::openDevice(const CameraDevice &device)
     mPreviewGrabber->SetOneShot(false);
     mPreviewGrabber->SetBufferSamples(false);
     // 回调函数 0-调用SampleCB 1-BufferCB
-    mPreviewGrabber->SetCallback(&mPreviewCallback, 1);
+    hr = mPreviewGrabber->SetCallback(&mPreviewCallback, 1);
     if (FAILED(hr))
         return false;
     // 设置格式
-    amt.subtype = mSetting.isJpg ? MEDIASUBTYPE_MJPG : MEDIASUBTYPE_RGB32;
+    // 其他的原生格式解析可以参考：
+    // https://github.com/GoodRon/QtWebcam
+    // 衍生版本：https://gitee.com/fsfzp888/UVCCapture
+    // amt.subtype = MEDIASUBTYPE_MJPG;
     hr = mPreviewGrabber->SetMediaType(&amt);
     if (FAILED(hr))
         return false;
@@ -143,18 +157,52 @@ bool CameraCore::openDevice(const CameraDevice &device)
     mStillGrabber->SetOneShot(false);
     mStillGrabber->SetBufferSamples(true);
     // 回调函数 0-调用SampleCB 1-BufferCB
-    mStillGrabber->SetCallback(&mStillCallback, 1);
+    hr = mStillGrabber->SetCallback(&mStillCallback, 1);
     if (FAILED(hr))
         return false;
-    // amt.subtype = MEDIASUBTYPE_RGB32;
+    // amt.subtype = MEDIASUBTYPE_MJPG;
     hr = mStillGrabber->SetMediaType(&amt);
     if (FAILED(hr))
         return false;
+
     // still render可能失败，不判断返回值
     mBuilder->RenderStream(&PIN_CATEGORY_STILL, &MEDIATYPE_Video,
                            mSourceFilter, mStillFilter, mStillNull);
 
+    mPreviewCallback.isJpg = is_jpg;
+    mStillCallback.isJpg = is_jpg;
     return true;
+}
+
+bool CameraCore::getType(GUID &type)
+{
+    if (!mSourceFilter || !mBuilder) {
+        return false;
+    }
+
+    HRESULT hr = S_FALSE;
+    IAMStreamConfig *stream_config = NULL;
+    hr = mBuilder->FindInterface(&PIN_CATEGORY_CAPTURE, &MEDIATYPE_Interleaved, mSourceFilter,
+                                 IID_IAMStreamConfig, reinterpret_cast<void **>(&stream_config));
+    if (FAILED(hr) || !stream_config) {
+        hr = mBuilder->FindInterface(&PIN_CATEGORY_CAPTURE, &MEDIATYPE_Video, mSourceFilter,
+                                     IID_IAMStreamConfig, reinterpret_cast<void **>(&stream_config));
+    }
+    if (FAILED(hr) || !stream_config) {
+        return false;
+    }
+
+    AM_MEDIA_TYPE *pamt = NULL;
+    hr = stream_config->GetFormat(&pamt);
+    bool ret = false;
+    // 设置分辨率，如果无效的话似乎会使用默认值
+    if (SUCCEEDED(hr) && pamt && pamt->pbFormat) {
+        type = pamt->subtype;
+        ret = true;
+        DeleteMediaType(pamt);
+    }
+    SAFE_RELEASE(stream_config);
+    return ret;
 }
 
 bool CameraCore::setFormat(int width, int height, int avgTime)
@@ -175,12 +223,12 @@ bool CameraCore::setFormat(int width, int height, int avgTime)
         return false;
     }
 
-    AM_MEDIA_TYPE *amt = NULL;
-    hr = stream_config->GetFormat(&amt);
+    AM_MEDIA_TYPE *pamt = NULL;
+    hr = stream_config->GetFormat(&pamt);
     bool ret = false;
     // 设置分辨率，如果无效的话似乎会使用默认值
-    if (SUCCEEDED(hr) && amt && amt->pbFormat) {
-        VIDEOINFOHEADER *vih = reinterpret_cast<VIDEOINFOHEADER *>(amt->pbFormat);
+    if (SUCCEEDED(hr) && pamt && pamt->pbFormat) {
+        VIDEOINFOHEADER *vih = reinterpret_cast<VIDEOINFOHEADER *>(pamt->pbFormat);
         if (width > 0 && height > 0) {
             vih->bmiHeader.biWidth = width;
             vih->bmiHeader.biHeight = height;
@@ -194,20 +242,14 @@ bool CameraCore::setFormat(int width, int height, int avgTime)
         } else {
             avgTime = vih->AvgTimePerFrame;
         }
-        // 目前我只需要转 jpg 和 rgb，其他的原生格式解析可以参考：
-        // https://github.com/GoodRon/QtWebcam
-        // 衍生版本：https://gitee.com/fsfzp888/UVCCapture
-        if (amt->subtype != MEDIASUBTYPE_MJPG) {
-            mSetting.isJpg = false;
-        } else {
-            mSetting.isJpg = true;
-        }
-        hr = stream_config->SetFormat(amt);
+        // 这里可以判断原格式，不能设置
+        bool is_jpg = (pamt->subtype == MEDIASUBTYPE_MJPG);
+        hr = stream_config->SetFormat(pamt);
         if (SUCCEEDED(hr)) {
             ret = true;
         }
-        qDebug()<<__FUNCTION__<<hr<<width<<height<<(mSetting.isJpg ? "jpg" : "rgb")<<avgTime;
-        DeleteMediaType(amt);
+        qDebug()<<__FUNCTION__<<hr<<width<<height<<avgTime<<(is_jpg ? "jpg" : "rgb");
+        DeleteMediaType(pamt);
     }
     SAFE_RELEASE(stream_config);
     return ret;
@@ -227,19 +269,15 @@ bool CameraCore::play()
                 int width = vih->bmiHeader.biWidth;
                 int height = vih->bmiHeader.biHeight;
                 int avg_time = vih->AvgTimePerFrame;
-                qDebug()<<__FUNCTION__<<width<<height<<(mSetting.isJpg ? "jpg" : "rgb")<<avg_time;
+                qDebug()<<__FUNCTION__<<width<<height<<avg_time;
 
                 mPreviewCallback.width = width;
                 mPreviewCallback.height = height;
-                // 如果是非固定的格式，可以在这里设置回调函数的解析方式
-                mPreviewCallback.isJpg = mSetting.isJpg;
                 mPreviewCallback.running = true;
 
                 mStillCallback.width = width;
                 mStillCallback.height = height;
-                mStillCallback.isJpg = mSetting.isJpg;
                 mStillCallback.running = true;
-
 
                 mSetting.width = width;
                 mSetting.height = height;
