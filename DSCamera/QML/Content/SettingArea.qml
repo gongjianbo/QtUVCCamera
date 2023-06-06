@@ -99,10 +99,22 @@ ColumnLayout {
             }
         }
         Button {
-            text: "查看图片"
+            text: cameraCtrl.probe.recording ? "结束" : "录制"
             onClicked: {
-                cameraCtrl.probe.openCacheDir()
+                // 录制的时候应该把其他操作禁用，不然会引发一系列问题
+                if (cameraCtrl.probe.recording) {
+                    cameraCtrl.probe.stopRecord()
+                } else {
+                    cameraCtrl.probe.startRecord()
+                }
             }
+        }
+    }
+
+    Button {
+        text: "打开缓存文件夹"
+        onClicked: {
+            cameraCtrl.probe.openCacheDir()
         }
     }
 

@@ -6,7 +6,7 @@
 class CameraCore
 {
 public:
-    explicit CameraCore(QObject *parent = nullptr);
+    explicit CameraCore();
     ~CameraCore();
 
     // 获取当前图像宽度
@@ -18,7 +18,7 @@ public:
     void setCallback(const std::function<void(const QImage &image)> &previewCB,
                      const std::function<void(const QImage &image)> &stillCB);
 
-    // 打开设备
+    // 打开设备，open成功后调用play
     bool openDevice(const CameraDevice &device);
     // 查询格式
     bool getType(GUID &type);
@@ -31,6 +31,10 @@ public:
     bool pause();
     // 停止
     bool stop();
+    // 开始录制
+    bool startRecord(const QString &savePath);
+    // 结束录制
+    bool stopRecord();
 
     // 弹出directshow的设备设置，指定父窗口时模态显示
     bool deviceSetting(HWND winId);
@@ -53,14 +57,15 @@ private:
     IBaseFilter *mSourceFilter{NULL};
     ISampleGrabber *mPreviewGrabber{NULL};
     IBaseFilter *mPreviewFilter{NULL};
-    IBaseFilter *mPreviewNull{NULL};
     CameraCallback mPreviewCallback;
 
     // still pin 拍照
     ISampleGrabber *mStillGrabber{NULL};
     IBaseFilter *mStillFilter{NULL};
-    IBaseFilter *mStillNull{NULL};
     CameraCallback mStillCallback;
+
+    // 当前open的设备信息
+    CameraDevice mDevice;
 
     // selectDevice 时应用之前的设置
     struct {
@@ -73,4 +78,14 @@ private:
         // 换算成100ns单位就是0.0333333 * 1000 * 1000 * 10 = 333333
         int avgTime = 333333;
     } mSetting;
+
+    // 操作状态
+    struct {
+        // 开关
+        bool running{false};
+        // 录制
+        bool recording{false};
+        // 录制路径
+        QString recordPath;
+    } mState;
 };

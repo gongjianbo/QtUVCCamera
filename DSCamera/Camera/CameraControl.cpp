@@ -20,6 +20,7 @@ CameraControl::CameraControl(QObject *parent)
         probe.stillUpdate(img);
     };
     core.setCallback(preview_callback, still_callback);
+    probe.attachCore(&core);
 
     // 检测摄像头热插拔
     hotplug.init(QVector<QUuid>() << QUuid(0x65E8773DL, 0x8F56, 0x11D0, 0xA3, 0xB9, 0x00, 0xA0, 0xC9, 0x22, 0x31, 0x96));
@@ -43,7 +44,7 @@ CameraControl::CameraControl(QObject *parent)
             int select = 0;
             for (int i = 0; i < device_list.size(); i++)
             {
-                if (device_list.at(i).displayName == device.displayName) {
+                if (device.displayName.compare(device_list.at(i).displayName) == 0) {
                     select = i;
                     break;
                 }

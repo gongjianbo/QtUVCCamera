@@ -2,7 +2,7 @@
 #include <QDateTime>
 #include <QDebug>
 
-CameraCore::CameraCore(QObject *parent)
+CameraCore::CameraCore()
 {
 }
 
@@ -33,8 +33,9 @@ bool CameraCore::openDevice(const CameraDevice &device)
 {
     // 释放当前
     releaseGraph();
+    mDevice = device;
 
-    HRESULT hr;
+    HRESULT hr = S_FALSE;
     // 创建Filter Graph Manager.
     hr = ::CoCreateInstance(CLSID_FilterGraph, NULL, CLSCTX_INPROC_SERVER, IID_IGraphBuilder, reinterpret_cast<void **>(&mGraph));
     if (FAILED(hr))
@@ -51,10 +52,6 @@ bool CameraCore::openDevice(const CameraDevice &device)
     if (FAILED(hr))
         return false;
 
-    // MFC版用到，暂时移除
-    // hr = mGraph->QueryInterface(IID_IVideoWindow, reinterpret_cast<LPVOID *>(&mVideoWindow));
-    // hr = mGraph->QueryInterface(IID_IMediaEvent, reinterpret_cast<LPVOID *>(&gME));
-
     // 创建用于预览的Sample Grabber Filter.
     hr = ::CoCreateInstance(CLSID_SampleGrabber, NULL, CLSCTX_INPROC_SERVER, IID_IBaseFilter, reinterpret_cast<void **>(&mPreviewFilter));
     if (FAILED(hr))
@@ -62,11 +59,6 @@ bool CameraCore::openDevice(const CameraDevice &device)
 
     // 获取ISampleGrabber接口，用于设置回调等相关信息
     hr = mPreviewFilter->QueryInterface(IID_ISampleGrabber, reinterpret_cast<void **>(&mPreviewGrabber));
-    if (FAILED(hr))
-        return false;
-
-    // 创建Null Filter
-    hr = ::CoCreateInstance(CLSID_NullRenderer, NULL, CLSCTX_INPROC_SERVER, IID_IBaseFilter, reinterpret_cast<void **>(&mPreviewNull));
     if (FAILED(hr))
         return false;
 
@@ -80,12 +72,6 @@ bool CameraCore::openDevice(const CameraDevice &device)
     if (FAILED(hr))
         return false;
 
-    // 创建Null Filter
-    hr = ::CoCreateInstance(CLSID_NullRenderer, NULL, CLSCTX_INPROC_SERVER, IID_IBaseFilter, reinterpret_cast<void **>(&mStillNull));
-    if (FAILED(hr))
-        return false;
-
-    // hr = ::CoCreateInstance(CLSID_EZrgb24, 0, CLSCTX_INPROC_SERVER, IID_IBaseFilter, reinterpret_cast<void **>(&mTransformFilter));
     if (!bindFilter(device.displayName))
         return false;
 
@@ -96,12 +82,6 @@ bool CameraCore::openDevice(const CameraDevice &device)
     if (FAILED(hr))
         return false;
     hr = mGraph->AddFilter(mStillFilter, L"Still Filter");
-    if (FAILED(hr))
-        return false;
-    hr = mGraph->AddFilter(mPreviewNull, L"Preview Null");
-    if (FAILED(hr))
-        return false;
-    hr = mGraph->AddFilter(mStillNull, L"Still Null");
     if (FAILED(hr))
         return false;
 
@@ -133,11 +113,29 @@ bool CameraCore::openDevice(const CameraDevice &device)
         // 初始化格式
         setFormat(-1, -1, -1);
     }
-    // RenderStream最后一个参数为空会弹出activemovie窗口显示预览视频
-    hr = mBuilder->RenderStream(&PIN_CATEGORY_CAPTURE, &MEDIATYPE_Video,
-                                mSourceFilter, mPreviewFilter, mPreviewNull);
-    if (FAILED(hr))
-        return false;
+
+    if (mState.recording) {
+        IBaseFilter *mux = NULL;
+        // 设置输出视频文件位置
+        wchar_t path[MAX_PATH] = {0};
+        mState.recordPath.toWCharArray(path);
+        hr = mBuilder->SetOutputFileName(&MEDIASUBTYPE_Avi, path, &mux, NULL);
+        if (FAILED(hr))
+            return false;
+        // RenderStream最后一个参数为空会弹出activemovie窗口显示预览视频
+        hr = mBuilder->RenderStream(&PIN_CATEGORY_CAPTURE, &MEDIATYPE_Video,
+                                    mSourceFilter, mPreviewFilter, mux);
+        if (FAILED(hr))
+            return false;
+        // 参考别人的代码，用完直接release
+        mux->Release();
+    } else {
+        // RenderStream最后一个参数为空会弹出activemovie窗口显示预览视频
+        hr = mBuilder->RenderStream(&PIN_CATEGORY_CAPTURE, &MEDIATYPE_Video,
+                                    mSourceFilter, NULL, mPreviewFilter);
+        if (FAILED(hr))
+            return false;
+    }
 
     mPreviewGrabber->SetOneShot(false);
     mPreviewGrabber->SetBufferSamples(false);
@@ -167,7 +165,7 @@ bool CameraCore::openDevice(const CameraDevice &device)
 
     // still render可能失败，不判断返回值
     mBuilder->RenderStream(&PIN_CATEGORY_STILL, &MEDIATYPE_Video,
-                           mSourceFilter, mStillFilter, mStillNull);
+                           mSourceFilter, NULL, mStillFilter);
 
     mPreviewCallback.isJpg = is_jpg;
     mStillCallback.isJpg = is_jpg;
@@ -282,6 +280,7 @@ bool CameraCore::play()
                 mSetting.width = width;
                 mSetting.height = height;
                 mSetting.avgTime = avg_time;
+                mState.running = true;
                 return true;
             }
         }
@@ -300,9 +299,39 @@ bool CameraCore::pause()
 bool CameraCore::stop()
 {
     if (mGraph && mMediaControl) {
+        mState.running = false;
         return SUCCEEDED(mMediaControl->Stop());
     }
     return false;
+}
+
+bool CameraCore::startRecord(const QString &savePath)
+{
+    if (!mState.running) {
+        return false;
+    }
+    // 暂时在core中调用
+    // TODO 目前录制会卡顿，即便不解析图片数据
+    stop();
+    mState.recording = true;
+    mState.recordPath = savePath;
+    // 打开时保持原来的size
+    mSetting.valid = true;
+    openDevice(mDevice);
+    play();
+    return true;
+}
+
+bool CameraCore::stopRecord()
+{
+    if (!mState.running) {
+        return false;
+    }
+    mState.recording = false;
+    mSetting.valid = true;
+    openDevice(mDevice);
+    play();
+    return true;
 }
 
 void CameraCore::releaseGraph()
@@ -322,22 +351,12 @@ void CameraCore::releaseGraph()
             freePin(mGraph, mPreviewFilter);
             mGraph->RemoveFilter(mPreviewFilter);
         }
-        if (mPreviewNull) {
-            freePin(mGraph, mPreviewNull);
-            mGraph->RemoveFilter(mPreviewNull);
-        }
         if (mStillFilter) {
             freePin(mGraph, mStillFilter);
             mGraph->RemoveFilter(mStillFilter);
         }
-        if (mStillNull) {
-            freePin(mGraph, mStillNull);
-            mGraph->RemoveFilter(mStillNull);
-        }
     }
     SAFE_RELEASE(mSourceFilter);
-    SAFE_RELEASE(mStillNull);
-    SAFE_RELEASE(mPreviewNull);
     SAFE_RELEASE(mStillFilter);
     SAFE_RELEASE(mPreviewFilter);
     SAFE_RELEASE(mStillGrabber);
@@ -348,7 +367,7 @@ void CameraCore::releaseGraph()
 
 bool CameraCore::bindFilter(const QString &deviceName)
 {
-    HRESULT hr;
+    HRESULT hr = S_FALSE;
 
     // 调用 CoCreateInstance 以创建系统设备枚举器的实例
     ICreateDevEnum *devce_enum = NULL;
