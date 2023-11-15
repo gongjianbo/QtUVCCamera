@@ -69,6 +69,59 @@ bool CameraInfo::getVidPid(const QString &name, quint16 &vid, quint16 &pid)
     return true;
 }
 
+bool enumResolutions(IMoniker *moniker)
+{
+    // 枚举该设备支持的格式和分辨率
+    IBaseFilter *source_filter = NULL;
+    HRESULT hr = moniker->BindToObject(NULL, NULL, IID_IBaseFilter,
+                                       reinterpret_cast<void **>(&source_filter));
+    if (FAILED(hr) || !source_filter)
+        return false;
+
+    IEnumPins *enum_pin = NULL;
+    if (FAILED(source_filter->EnumPins(&enum_pin)) || !enum_pin) {
+        SAFE_RELEASE(source_filter);
+        return false;
+    }
+    enum_pin->Reset();
+    IPin *pin = NULL;
+    while (SUCCEEDED(enum_pin->Next(1, &pin, NULL)) && pin)
+    {
+        PIN_INFO pin_info;
+        if (FAILED(pin->QueryPinInfo(&pin_info)) || pin_info.dir != PINDIR_OUTPUT) {
+            SAFE_RELEASE(pin);
+            continue;
+        }
+
+        IEnumMediaTypes *enum_type = NULL;
+        if (FAILED(pin->EnumMediaTypes(&enum_type)) || !enum_type) {
+            SAFE_RELEASE(pin);
+            continue;
+        }
+        enum_type->Reset();
+        AM_MEDIA_TYPE *pamt = NULL;
+        while (SUCCEEDED(enum_type->Next(1, &pamt, NULL)) && pamt)
+        {
+            if (pamt->formattype == FORMAT_VideoInfo && pamt->majortype == MEDIATYPE_Video)
+            {
+                VIDEOINFOHEADER *vih = reinterpret_cast<VIDEOINFOHEADER *>(pamt->pbFormat);
+                int width = vih->bmiHeader.biWidth;
+                int height = vih->bmiHeader.biHeight;
+                int avg_time = vih->AvgTimePerFrame;
+                // 分辨率和格式是混在一起的，需要自己分开
+                qDebug() << pamt->subtype << width << height << avg_time;
+            }
+            DeleteMediaType(pamt);
+            pamt = NULL;
+        }
+        SAFE_RELEASE(enum_type);
+        SAFE_RELEASE(pin);
+    }
+    SAFE_RELEASE(enum_pin);
+    SAFE_RELEASE(source_filter);
+    return true;
+}
+
 QList<CameraDevice> CameraInfo::enumDeviceList() const
 {
     // https://learn.microsoft.com/zh-cn/windows/win32/directshow/selecting-a-capture-device
@@ -109,7 +162,7 @@ QList<CameraDevice> CameraInfo::enumDeviceList() const
     ::CoGetMalloc(1, reinterpret_cast<LPMALLOC *>(&malloc_interface));
     qDebug()<<__FUNCTION__;
     int counter = 0;
-    while (enum_moniker->Next(1, &moniker, NULL) == S_OK && moniker)
+    while (SUCCEEDED(enum_moniker->Next(1, &moniker, NULL)) && moniker)
     {
         counter++;
         qDebug()<<"device"<<counter;
@@ -156,21 +209,12 @@ QList<CameraDevice> CameraInfo::enumDeviceList() const
         // qDebug()<<"devicepath"<<devicepath;
 
         // 枚举该设备支持的格式和分辨率
-        // IBaseFilter *source_filter = NULL;
-        // hr = moniker->BindToObject(NULL, NULL, IID_IBaseFilter,
-        //                             reinterpret_cast<void **>(&source_filter));
-        // if (FAILED(hr) || !source_filter) {
-        //     SAFE_RELEASE(prop_bag);
-        //     SAFE_RELEASE(moniker);
-        //     continue;
-        // }
-        // device.resolutions = enumResolutions(graph_builder, source_filter);
-        // qDebug()<<"resolutions"<<device.resolutions;
+        if (enumResolutions(moniker)) {
+            device_list.push_back(device);
+        }
 
-        // SAFE_RELEASE(source_filter);
         SAFE_RELEASE(prop_bag);
         SAFE_RELEASE(moniker);
-        device_list.push_back(device);
     }
 
     SAFE_RELEASE(malloc_interface);

@@ -5,6 +5,7 @@
 #include <QImage>
 #include <memory>
 #include <atomic>
+#include <mutex>
 #include <functional>
 #include <memory.h>
 #include <string.h>
@@ -51,61 +52,33 @@ struct CameraDevice
 class CameraCallback : public ISampleGrabberCB
 {
 public:
-    ULONG STDMETHODCALLTYPE AddRef() override {
-        return 1;
-    }
-    ULONG STDMETHODCALLTYPE Release() override {
-        return 1;
-    }
-    HRESULT STDMETHODCALLTYPE SampleCB(double time, IMediaSample *sample) override {
-        Q_UNUSED(time)
-        Q_UNUSED(sample)
-        return S_OK;
-    }
-    HRESULT STDMETHODCALLTYPE BufferCB(double time, BYTE *buffer, long len) override {
-        Q_UNUSED(time)
-        if (running && buffer && len > 0) {
-            QImage img;
-            // 目前只简单的处理 jpg 和 rgb
-            // 在当前线程 copy 一次，避免跨线程后操作原来的内存
-            if (isJpg) {
-                QByteArray bytes = QByteArray::fromRawData(reinterpret_cast<const char *>(buffer), len);
-                img.loadFromData(bytes, "JPG");
-                img = img.copy();
-            } else if (len == width * height * 4) {
-                // 如果是RGB32，小端模式[col * 4 + 3]Alpha通道没置零，要在此处置零
-                // RGB24可以用Qt5.14新增的BGR888
-                img = QImage(buffer, width, height, width * 4, QImage::Format_RGB32);
-                for (int row = 0; row < height; row++)
-                {
-                    uchar *row_ptr = img.scanLine(row);
-                    for (int col = 0; col < width; col++)
-                    {
-                        row_ptr[col * 4 + 3] = 0xFF;
-                    }
-                }
-                // 默认是yuv，directshow转成rgb就上下翻转了
-                img = img.mirrored(false, true);
-            } else {
-                // 有的设置转成rgb会一直触发stillpin
-                return S_FALSE;
-            }
-            callback(img);
-        }
-        return S_OK;
-    }
-    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid, LPVOID *ppv) override {
-        if(iid == IID_ISampleGrabberCB || iid == IID_IUnknown) {
-            *ppv = reinterpret_cast<LPVOID *>(this);
-            return S_OK;
-        }
-        return E_NOINTERFACE;
-    }
+    ULONG STDMETHODCALLTYPE AddRef() override;
+    ULONG STDMETHODCALLTYPE Release() override;
+    HRESULT STDMETHODCALLTYPE SampleCB(double time, IMediaSample *sample) override;
+    HRESULT STDMETHODCALLTYPE BufferCB(double time, BYTE *buffer, long len) override;
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid, LPVOID *ppv) override;
 
-    // 提前设置好回调
-    std::function<void(const QImage &image)> callback;
-    std::atomic_bool running{false};
-    bool isJpg{false};
-    int width{0};
-    int height{0};
+    // 设置running状态，=true准备好接收图像，提前设置好参数再start
+    void start();
+    // 设置running状态，=false时不处理图像
+    void stop();
+    // 回调函数设置
+    void setCallback(const std::function<void(const QImage &image)> &callback);
+    // 图像类型设置
+    void setType(GUID type);
+    // 图像尺寸设置
+    void setSize(int width, int height);
+
+private:
+    // 给running加锁，防止正在接收图像时用到的参数被修改，强制同步
+    std::mutex mMutex;
+    // =false时不处理图像
+    std::atomic<bool> mRunning{false};
+    // 处理好图像后通过回调传出
+    std::function<void(const QImage &image)> mCallback;
+    // 图像数据类型
+    GUID mType{MEDIASUBTYPE_RGB32};
+    // 图像尺寸
+    int mWidth{0};
+    int mHeight{0};
 };

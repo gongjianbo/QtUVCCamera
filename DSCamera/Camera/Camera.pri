@@ -10,6 +10,7 @@ HEADERS += \
     $$PWD/SampleGrabber.h
 
 SOURCES += \
+    $$PWD/CameraCommon.cpp \
     $$PWD/CameraControl.cpp \
     $$PWD/CameraCore.cpp \
     $$PWD/CameraHotplug.cpp \

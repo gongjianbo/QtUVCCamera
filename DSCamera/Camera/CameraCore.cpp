@@ -25,8 +25,8 @@ int CameraCore::getCurHeight() const
 void CameraCore::setCallback(const std::function<void (const QImage &)> &previewCB,
                              const std::function<void (const QImage &)> &stillCB)
 {
-    mPreviewCallback.callback = previewCB;
-    mStillCallback.callback = stillCB;
+    mPreviewCallback.setCallback(previewCB);
+    mStillCallback.setCallback(stillCB);
 }
 
 bool CameraCore::openDevice(const CameraDevice &device)
@@ -85,15 +85,14 @@ bool CameraCore::openDevice(const CameraDevice &device)
     if (FAILED(hr))
         return false;
 
-    // 初始不是jpg的全部用rgb，但是会影响非jpg的still pin
-    GUID sub_type;
-    bool is_jpg = false;
-    if (getType(sub_type)) {
-        if (sub_type == MEDIASUBTYPE_MJPG) {
-            is_jpg = true;
-        }
+    // TODO 格式支持待完善，目前不是jpg的全部用rgb，但是会影响非jpg的still pin
+    GUID sub_type = MEDIASUBTYPE_NULL;
+    if (mSetting.valid) {
+        sub_type = mSetting.type;
+    } else {
+        getType(sub_type);
     }
-    if (!is_jpg) {
+    if (sub_type != MEDIASUBTYPE_MJPG) {
         sub_type = MEDIASUBTYPE_RGB32;
     }
     // 先设置一下后面才能生效
@@ -107,11 +106,11 @@ bool CameraCore::openDevice(const CameraDevice &device)
 
     // 设置分辨率
     if (mSetting.valid) {
-        setFormat(mSetting.width, mSetting.height, mSetting.avgTime);
+        setFormat(mSetting.width, mSetting.height, mSetting.avgTime, mSetting.type);
         mSetting.valid = false;
     } else {
         // 初始化格式
-        setFormat(-1, -1, -1);
+        setFormat(-1, -1, -1, sub_type);
     }
 
     if (mState.recording) {
@@ -167,8 +166,6 @@ bool CameraCore::openDevice(const CameraDevice &device)
     mBuilder->RenderStream(&PIN_CATEGORY_STILL, &MEDIATYPE_Video,
                            mSourceFilter, NULL, mStillFilter);
 
-    mPreviewCallback.isJpg = is_jpg;
-    mStillCallback.isJpg = is_jpg;
     return true;
 }
 
@@ -203,8 +200,9 @@ bool CameraCore::getType(GUID &type)
     return ret;
 }
 
-bool CameraCore::setFormat(int width, int height, int avgTime)
+bool CameraCore::setFormat(int width, int height, int avgTime, GUID type)
 {
+    qDebug()<<__FUNCTION__<<"call"<<width<<height<<avgTime<<type;
     if (!mSourceFilter || !mBuilder) {
         return false;
     }
@@ -220,34 +218,78 @@ bool CameraCore::setFormat(int width, int height, int avgTime)
     if (FAILED(hr) || !stream_config) {
         return false;
     }
-
-    AM_MEDIA_TYPE *pamt = NULL;
-    hr = stream_config->GetFormat(&pamt);
+    int cap_count;
+    int cap_size;
+    VIDEO_STREAM_CONFIG_CAPS caps;
+    hr = stream_config->GetNumberOfCapabilities(&cap_count, &cap_size);
+    if (FAILED(hr) || sizeof(caps) != cap_size)
+    {
+        SAFE_RELEASE(stream_config);
+        return false;
+    }
     bool ret = false;
-    // 设置分辨率，如果无效的话似乎会使用默认值
-    if (SUCCEEDED(hr) && pamt && pamt->pbFormat) {
-        VIDEOINFOHEADER *vih = reinterpret_cast<VIDEOINFOHEADER *>(pamt->pbFormat);
-        if (width > 0 && height > 0) {
-            vih->bmiHeader.biWidth = width;
-            vih->bmiHeader.biHeight = height;
-        } else {
-            width = vih->bmiHeader.biWidth;
-            height = vih->bmiHeader.biHeight;
+    for (int i = 0; i < cap_count && !ret; i++)
+    {
+        AM_MEDIA_TYPE *pamt = NULL;
+        hr = stream_config->GetStreamCaps(i, &pamt, (BYTE*)(&caps));
+        if (FAILED(hr) || !pamt) {
+            continue;
         }
-        if (avgTime > 0) {
-            // int fps = qRound(10000000.0 / pvi->AvgTimePerFrame);
-            vih->AvgTimePerFrame = avgTime;
-        } else {
-            avgTime = vih->AvgTimePerFrame;
+        // 没设置类型时就用第一个类型
+        if (type == MEDIASUBTYPE_NULL) {
+            type = pamt->subtype;
         }
-        // 这里可以判断原格式，不能设置
-        bool is_jpg = (pamt->subtype == MEDIASUBTYPE_MJPG);
-        hr = stream_config->SetFormat(pamt);
-        if (SUCCEEDED(hr)) {
-            ret = true;
+        if (pamt->formattype == FORMAT_VideoInfo && pamt->subtype == type) {
+            VIDEOINFOHEADER *vih = reinterpret_cast<VIDEOINFOHEADER *>(pamt->pbFormat);
+            if (width > 0 && height > 0) {
+                vih->bmiHeader.biWidth = width;
+                vih->bmiHeader.biHeight = height;
+            } else {
+                width = vih->bmiHeader.biWidth;
+                height = vih->bmiHeader.biHeight;
+            }
+            if (avgTime > 0) {
+                // int fps = qRound(10000000.0 / pvi->AvgTimePerFrame);
+                vih->AvgTimePerFrame = avgTime;
+            } else {
+                avgTime = vih->AvgTimePerFrame;
+            }
+            hr = stream_config->SetFormat(pamt);
+            if (SUCCEEDED(hr)) {
+                ret = true;
+            }
+            qDebug()<<__FUNCTION__<<"result"<<hr<<width<<height<<avgTime<<type;
         }
-        qDebug()<<__FUNCTION__<<hr<<width<<height<<avgTime<<(is_jpg ? "jpg" : "rgb");
         DeleteMediaType(pamt);
+    }
+    // 上面设置失败了，可能是没有jpg或者rgb，此处设置默认格式的分辨率
+    if (!ret) {
+        AM_MEDIA_TYPE *pamt = NULL;
+        hr = stream_config->GetFormat(&pamt);
+        // 设置分辨率，如果无效会使用默认值
+        if (SUCCEEDED(hr) && pamt && pamt->pbFormat) {
+            VIDEOINFOHEADER *vih = reinterpret_cast<VIDEOINFOHEADER *>(pamt->pbFormat);
+            if (width > 0 && height > 0) {
+                vih->bmiHeader.biWidth = width;
+                vih->bmiHeader.biHeight = height;
+            } else {
+                width = vih->bmiHeader.biWidth;
+                height = vih->bmiHeader.biHeight;
+            }
+            if (avgTime > 0) {
+                // int fps = qRound(10000000.0 / pvi->AvgTimePerFrame);
+                vih->AvgTimePerFrame = avgTime;
+            } else {
+                avgTime = vih->AvgTimePerFrame;
+            }
+            // 这里可以判断原格式，不能设置
+            hr = stream_config->SetFormat(pamt);
+            if (SUCCEEDED(hr)) {
+                ret = true;
+            }
+            qDebug()<<__FUNCTION__<<"other"<<hr<<width<<height<<avgTime<<pamt->subtype;
+            DeleteMediaType(pamt);
+        }
     }
     SAFE_RELEASE(stream_config);
     return ret;
@@ -267,19 +309,22 @@ bool CameraCore::play()
                 int width = vih->bmiHeader.biWidth;
                 int height = vih->bmiHeader.biHeight;
                 int avg_time = vih->AvgTimePerFrame;
-                qDebug()<<__FUNCTION__<<width<<height<<avg_time;
+                GUID sub_type = amt.subtype;
 
-                mPreviewCallback.width = width;
-                mPreviewCallback.height = height;
-                mPreviewCallback.running = true;
+                mPreviewCallback.setSize(width, height);
+                mPreviewCallback.setType(sub_type);
+                mPreviewCallback.start();
 
-                mStillCallback.width = width;
-                mStillCallback.height = height;
-                mStillCallback.running = true;
+                mStillCallback.setSize(width, height);
+                mStillCallback.setType(sub_type);
+                mStillCallback.start();
 
                 mSetting.width = width;
                 mSetting.height = height;
                 mSetting.avgTime = avg_time;
+                mSetting.type = sub_type;
+
+                qDebug()<<__FUNCTION__<<"play"<<width<<height<<avg_time<<sub_type;
                 mState.running = true;
                 return true;
             }
@@ -299,6 +344,8 @@ bool CameraCore::pause()
 bool CameraCore::stop()
 {
     if (mGraph && mMediaControl) {
+        mPreviewCallback.stop();
+        mStillCallback.stop();
         mState.running = false;
         return SUCCEEDED(mMediaControl->Stop());
     }
@@ -336,8 +383,8 @@ bool CameraCore::stopRecord()
 
 void CameraCore::releaseGraph()
 {
-    mPreviewCallback.running = false;
-    mStillCallback.running = false;
+    mPreviewCallback.stop();
+    mStillCallback.stop();
     if (mMediaControl) {
         mMediaControl->Stop();
     }
@@ -532,24 +579,32 @@ bool CameraCore::formatSetting(HWND winId)
         ::CoTaskMemFree(cauuid.pElems);
         prop_pages->Release();
 
-        AM_MEDIA_TYPE *pmt = NULL;
-        if (NOERROR == stream_config->GetFormat(&pmt))
+        AM_MEDIA_TYPE *pamt = NULL;
+        if (NOERROR == stream_config->GetFormat(&pamt))
         {
-            if (pmt->formattype == FORMAT_VideoInfo)
+            if (pamt->formattype == FORMAT_VideoInfo && pamt->majortype == MEDIATYPE_Video)
             {
-                VIDEOINFOHEADER *vih = reinterpret_cast<VIDEOINFOHEADER *>(pmt->pbFormat);
+                VIDEOINFOHEADER *vih = reinterpret_cast<VIDEOINFOHEADER *>(pamt->pbFormat);
                 int width = vih->bmiHeader.biWidth;
                 int height = vih->bmiHeader.biHeight;
                 int avg_time = vih->AvgTimePerFrame;
+                GUID sub_type = pamt->subtype;
+                // TODO 格式支持待完善，目前不是jpg的全部用rgb
+                // 稍后会调用 openDevice 和 setFormat 函数
+                if (sub_type != MEDIASUBTYPE_MJPG) {
+                    sub_type = MEDIASUBTYPE_RGB32;
+                }
+
                 mSetting.width = width;
                 mSetting.height = height;
                 mSetting.avgTime = avg_time;
+                mSetting.type = sub_type;
                 mSetting.valid = true;
-                qDebug()<<__FUNCTION__<<width<<height<<avg_time;
+                qDebug()<<__FUNCTION__<<width<<height<<avg_time<<sub_type;
                 ret = true;
             }
         }
-        DeleteMediaType(pmt);
+        DeleteMediaType(pamt);
     }
     stream_config->Release();
     return ret;
