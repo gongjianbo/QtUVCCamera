@@ -7,6 +7,7 @@ HEADERS += \
     $$PWD/CameraRegister.h \
     $$PWD/CameraCommon.h \
     $$PWD/CameraView.h \
+    $$PWD/ImageConverter.h \
     $$PWD/SampleGrabber.h
 
 SOURCES += \
@@ -17,4 +18,5 @@ SOURCES += \
     $$PWD/CameraInfo.cpp \
     $$PWD/CameraProbe.cpp \
     $$PWD/CameraRegister.cpp \
-    $$PWD/CameraView.cpp
+    $$PWD/CameraView.cpp \
+    $$PWD/ImageConverter.cpp

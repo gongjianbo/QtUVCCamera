@@ -85,14 +85,13 @@ bool CameraCore::openDevice(const CameraDevice &device)
     if (FAILED(hr))
         return false;
 
-    // TODO 格式支持待完善，目前不是jpg的全部用rgb，但是会影响非jpg的still pin
     GUID sub_type = MEDIASUBTYPE_NULL;
     if (mSetting.valid) {
         sub_type = mSetting.type;
     } else {
         getType(sub_type);
     }
-    if (sub_type != MEDIASUBTYPE_MJPG) {
+    if (!isValidSubtype(sub_type)) {
         sub_type = MEDIASUBTYPE_RGB32;
     }
     // 先设置一下后面才能生效
@@ -312,11 +311,11 @@ bool CameraCore::play()
                 GUID sub_type = amt.subtype;
 
                 mPreviewCallback.setSize(width, height);
-                mPreviewCallback.setType(sub_type);
+                mPreviewCallback.setSubtype(sub_type);
                 mPreviewCallback.start();
 
                 mStillCallback.setSize(width, height);
-                mStillCallback.setType(sub_type);
+                mStillCallback.setSubtype(sub_type);
                 mStillCallback.start();
 
                 mSetting.width = width;
@@ -589,9 +588,8 @@ bool CameraCore::formatSetting(HWND winId)
                 int height = vih->bmiHeader.biHeight;
                 int avg_time = vih->AvgTimePerFrame;
                 GUID sub_type = pamt->subtype;
-                // TODO 格式支持待完善，目前不是jpg的全部用rgb
                 // 稍后会调用 openDevice 和 setFormat 函数
-                if (sub_type != MEDIASUBTYPE_MJPG) {
+                if (!isValidSubtype(sub_type)) {
                     sub_type = MEDIASUBTYPE_RGB32;
                 }
 
