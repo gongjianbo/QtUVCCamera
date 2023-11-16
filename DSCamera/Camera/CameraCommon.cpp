@@ -25,7 +25,7 @@ HRESULT CameraCallback::BufferCB(double time, BYTE *buffer, long len)
         return S_OK;
     std::lock_guard<std::mutex> guard(mMutex);
     Q_UNUSED(guard)
-    //qDebug()<<len<<mWidth<<mHeight<<this;
+    // qDebug()<<len<<mWidth<<mHeight<<this;
     QImage img = mConverter(buffer, len, mWidth, mHeight);
     if (mRunning && !img.isNull()) {
         mCallback(img);

@@ -156,14 +156,18 @@ bool CameraCore::openDevice(const CameraDevice &device)
     hr = mStillGrabber->SetCallback(&mStillCallback, 1);
     if (FAILED(hr))
         return false;
-    // amt.subtype = MEDIASUBTYPE_MJPG;
     hr = mStillGrabber->SetMediaType(&amt);
     if (FAILED(hr))
         return false;
 
-    // still render可能失败，不判断返回值
-    mBuilder->RenderStream(&PIN_CATEGORY_STILL, &MEDIATYPE_Video,
-                           mSourceFilter, NULL, mStillFilter);
+    // still render可能失败，但是不return false
+    hr = mBuilder->RenderStream(&PIN_CATEGORY_STILL, &MEDIATYPE_Video,
+                                mSourceFilter, NULL, mStillFilter);
+    if (FAILED(hr)) {
+        // 失败后，stillpin可能持续触发，比如yuy2转rgb时
+        // 所以这里取消掉still的回调
+        mStillGrabber->SetCallback(NULL, 1);
+    }
 
     return true;
 }
@@ -296,40 +300,50 @@ bool CameraCore::setFormat(int width, int height, int avgTime, GUID type)
 
 bool CameraCore::play()
 {
-    if (mGraph && mMediaControl && mPreviewGrabber) {
-        if (SUCCEEDED(mMediaControl->Run())) {
-            AM_MEDIA_TYPE amt = {0};
-            HRESULT hr = mPreviewGrabber->GetConnectedMediaType(&amt);
-            if (FAILED(hr))
-                return false;
-            VIDEOINFOHEADER *vih = reinterpret_cast<VIDEOINFOHEADER *>(amt.pbFormat);
-            if (vih != NULL)
-            {
-                int width = vih->bmiHeader.biWidth;
-                int height = vih->bmiHeader.biHeight;
-                int avg_time = vih->AvgTimePerFrame;
-                GUID sub_type = amt.subtype;
+    if (!mGraph || !mMediaControl || !mPreviewGrabber)
+        return false;
 
-                mPreviewCallback.setSize(width, height);
-                mPreviewCallback.setSubtype(sub_type);
-                mPreviewCallback.start();
+    if (FAILED(mMediaControl->Run()))
+        return false;
 
-                mStillCallback.setSize(width, height);
-                mStillCallback.setSubtype(sub_type);
-                mStillCallback.start();
+    AM_MEDIA_TYPE amt = {0};
+    HRESULT hr = mPreviewGrabber->GetConnectedMediaType(&amt);
+    if (FAILED(hr))
+        return false;
+    VIDEOINFOHEADER *vih = reinterpret_cast<VIDEOINFOHEADER *>(amt.pbFormat);
+    if (!vih)
+        return false;
 
-                mSetting.width = width;
-                mSetting.height = height;
-                mSetting.avgTime = avg_time;
-                mSetting.type = sub_type;
+    int width = vih->bmiHeader.biWidth;
+    int height = vih->bmiHeader.biHeight;
+    int avg_time = vih->AvgTimePerFrame;
+    GUID sub_type = amt.subtype;
 
-                qDebug()<<__FUNCTION__<<"play"<<width<<height<<avg_time<<sub_type;
-                mState.running = true;
-                return true;
-            }
+    mPreviewCallback.setSize(width, height);
+    mPreviewCallback.setSubtype(sub_type);
+    mPreviewCallback.start();
+    qDebug()<<__FUNCTION__<<"preview"<<width<<height<<avg_time<<sub_type;
+
+    mStillCallback.setSize(width, height);
+    mStillCallback.setSubtype(sub_type);
+    if (mStillGrabber && SUCCEEDED(mStillGrabber->GetConnectedMediaType(&amt))) {
+        // 可能 StillPin 的格式没有被设置成功
+        VIDEOINFOHEADER *vih = reinterpret_cast<VIDEOINFOHEADER *>(amt.pbFormat);
+        if (vih) {
+            mStillCallback.setSize(vih->bmiHeader.biWidth, vih->bmiHeader.biHeight);
+            mStillCallback.setSubtype(amt.subtype);
+            qDebug()<<__FUNCTION__<<"still"<<vih->bmiHeader.biWidth<<vih->bmiHeader.biHeight<<amt.subtype;
         }
     }
-    return false;
+    mStillCallback.start();
+
+    mSetting.width = width;
+    mSetting.height = height;
+    mSetting.avgTime = avg_time;
+    mSetting.type = sub_type;
+
+    mState.running = true;
+    return true;
 }
 
 bool CameraCore::pause()

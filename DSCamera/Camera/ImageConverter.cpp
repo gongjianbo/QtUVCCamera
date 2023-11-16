@@ -12,7 +12,6 @@ QImage convertRGB32(const unsigned char *data, long len, int width, int height)
     if (width * height * 4 != len) {
         return convertEmpty(data, len, width, height);
     }
-    // TODO yuy2转rgb后，stillpin的回调也触发了，待处理
     // 参考 QCamera 代码，rgb 时 bmiHeader.biHeight < 0 为上到下，否则下到上需要翻转
     QImage img(data, width, height, QImage::Format_RGB32);
     if (height > 0) {
