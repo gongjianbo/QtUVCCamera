@@ -1,6 +1,7 @@
 #pragma once
 #include <QObject>
 #include "CameraCommon.h"
+#include "CameraInfo.h"
 
 // 封装DirectShow操作
 class CameraCore

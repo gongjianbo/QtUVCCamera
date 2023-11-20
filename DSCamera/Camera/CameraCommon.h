@@ -34,20 +34,6 @@ inline void DeleteMediaType(AM_MEDIA_TYPE *type) {
     ::CoTaskMemFree(type);
 }
 
-// 设备信息
-struct CameraDevice
-{
-    // 设备信息字符串，包含devicePath等信息
-    QString displayName;
-    // 用于ui显示的设备名
-    QString friendlyName;
-
-    // 是否有效，主要区分返回值默认构造
-    bool isValid() const {
-        return !displayName.isEmpty();
-    }
-};
-
 // 视频回调
 class CameraCallback : public ISampleGrabberCB
 {

@@ -3,6 +3,15 @@
 #include "CameraCommon.h"
 
 // 设备信息
+struct CameraDevice
+{
+    // 设备信息字符串，包含devicePath等信息
+    QString displayName;
+    // 用于ui显示的设备名
+    QString friendlyName;
+};
+
+// 设备信息
 class CameraInfo : public QObject
 {
     Q_OBJECT
