@@ -57,20 +57,21 @@ QImage convertYUY2(const unsigned char *data, long len, int width, int height)
             y2 = *p_yuv++ - 16;
             v = *p_yuv++ - 128;
 
-            r = (298 * y1 + 516 * u + 128) >> 8;
+            b = (298 * y1 + 516 * u + 128) >> 8;
             g = (298 * y1 - 100 * u - 208 * v + 128) >> 8;
-            b = (298 * y1 + 409 * v + 128) >> 8;
-            *p_rgb++ = rgbClip(r);
-            *p_rgb++ = rgbClip(g);
+            r = (298 * y1 + 409 * v + 128) >> 8;
+            // RGB32/ARGB32 单个像素内存顺序为 BGRA-8888
             *p_rgb++ = rgbClip(b);
+            *p_rgb++ = rgbClip(g);
+            *p_rgb++ = rgbClip(r);
             *p_rgb++ = 0xFF;
 
-            r = (298 * y2 + 516 * u + 128) >> 8;
+            b = (298 * y2 + 516 * u + 128) >> 8;
             g = (298 * y2 - 100 * u - 208 * v + 128) >> 8;
-            b = (298 * y2 + 409 * v + 128) >> 8;
-            *p_rgb++ = rgbClip(r);
-            *p_rgb++ = rgbClip(g);
+            r = (298 * y2 + 409 * v + 128) >> 8;
             *p_rgb++ = rgbClip(b);
+            *p_rgb++ = rgbClip(g);
+            *p_rgb++ = rgbClip(r);
             *p_rgb++ = 0xFF;
         }
     }
