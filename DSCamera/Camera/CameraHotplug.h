@@ -1,6 +1,5 @@
 #pragma once
 #include <QObject>
-#include <QObject>
 #include <QUuid>
 #include <QSharedPointer>
 #include "CameraInfo.h"

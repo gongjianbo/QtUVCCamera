@@ -109,7 +109,7 @@ bool CameraCore::openDevice(const CameraDevice &device)
         mSetting.valid = false;
     } else {
         // 初始化格式
-        setFormat(-1, -1, -1, sub_type);
+        setFormat(0, 0, 0, sub_type);
     }
 
     if (mState.recording) {
@@ -203,7 +203,7 @@ bool CameraCore::getType(GUID &type)
     return ret;
 }
 
-bool CameraCore::setFormat(int width, int height, int avgTime, GUID type)
+bool CameraCore::setFormat(int width, int height, LONGLONG avgTime, GUID type)
 {
     qDebug()<<__FUNCTION__<<"call"<<width<<height<<avgTime<<type;
     if (!mSourceFilter || !mBuilder) {
@@ -297,6 +297,10 @@ bool CameraCore::setFormat(int width, int height, int avgTime, GUID type)
         DeleteMediaType(pamt);
     }
     SAFE_RELEASE(stream_config);
+    if (ret) {
+        mSetting.width = width;
+        mSetting.height = height; 
+    }
     return ret;
 }
 
@@ -318,7 +322,7 @@ bool CameraCore::play()
 
     int width = vih->bmiHeader.biWidth;
     int height = vih->bmiHeader.biHeight;
-    int avg_time = vih->AvgTimePerFrame;
+    LONGLONG avg_time = vih->AvgTimePerFrame;
     GUID sub_type = amt.subtype;
 
     mPreviewCallback.setSize(width, height);
@@ -602,7 +606,7 @@ bool CameraCore::formatSetting(HWND winId)
                 VIDEOINFOHEADER *vih = reinterpret_cast<VIDEOINFOHEADER *>(pamt->pbFormat);
                 int width = vih->bmiHeader.biWidth;
                 int height = vih->bmiHeader.biHeight;
-                int avg_time = vih->AvgTimePerFrame;
+                LONGLONG avg_time = vih->AvgTimePerFrame;
                 GUID sub_type = pamt->subtype;
                 // 稍后会调用 openDevice 和 setFormat 函数
                 if (!isValidSubtype(sub_type)) {

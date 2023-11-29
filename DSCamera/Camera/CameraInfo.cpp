@@ -113,7 +113,7 @@ bool enumResolutions(ICaptureGraphBuilder2 *builder, IMoniker *moniker)
             VIDEOINFOHEADER *vih = reinterpret_cast<VIDEOINFOHEADER *>(pamt->pbFormat);
             int width = vih->bmiHeader.biWidth;
             int height = vih->bmiHeader.biHeight;
-            int avg_time = vih->AvgTimePerFrame;
+            LONGLONG avg_time = vih->AvgTimePerFrame;
             // 分辨率和格式是混在一起的，需要自己分开
             // TODO 会有重复的，暂时先手动比较过滤
             qDebug() << pamt->subtype << width << height << avg_time;
@@ -128,7 +128,7 @@ bool enumResolutions(ICaptureGraphBuilder2 *builder, IMoniker *moniker)
             VIDEOINFOHEADER *vih = reinterpret_cast<VIDEOINFOHEADER *>(pamt->pbFormat);
             int width = vih->bmiHeader.biWidth;
             int height = vih->bmiHeader.biHeight;
-            int avg_time = vih->AvgTimePerFrame;
+            LONGLONG avg_time = vih->AvgTimePerFrame;
             qDebug() << "default" << pamt->subtype << width << height << avg_time;
         }
         DeleteMediaType(pamt);
