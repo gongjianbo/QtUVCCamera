@@ -197,8 +197,8 @@ bool CameraCore::getType(GUID &type)
     if (SUCCEEDED(hr) && pamt && pamt->pbFormat) {
         type = pamt->subtype;
         ret = true;
-        DeleteMediaType(pamt);
     }
+    DeleteMediaType(pamt);
     SAFE_RELEASE(stream_config);
     return ret;
 }
@@ -260,10 +260,12 @@ bool CameraCore::setFormat(int width, int height, int avgTime, GUID type)
             hr = stream_config->SetFormat(pamt);
             if (SUCCEEDED(hr)) {
                 ret = true;
+                qDebug()<<__FUNCTION__<<"result"<<hr<<width<<height<<avgTime<<type;
             }
-            qDebug()<<__FUNCTION__<<"result"<<hr<<width<<height<<avgTime<<type;
         }
         DeleteMediaType(pamt);
+        if (ret)
+            break;
     }
     // 上面设置失败了，可能是没有jpg或者rgb，此处设置默认格式的分辨率
     if (!ret) {
@@ -291,8 +293,8 @@ bool CameraCore::setFormat(int width, int height, int avgTime, GUID type)
                 ret = true;
             }
             qDebug()<<__FUNCTION__<<"other"<<hr<<width<<height<<avgTime<<pamt->subtype;
-            DeleteMediaType(pamt);
         }
+        DeleteMediaType(pamt);
     }
     SAFE_RELEASE(stream_config);
     return ret;

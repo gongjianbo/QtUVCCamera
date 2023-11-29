@@ -120,6 +120,19 @@ bool enumResolutions(ICaptureGraphBuilder2 *builder, IMoniker *moniker)
         }
         DeleteMediaType(pamt);
     }
+    {
+        AM_MEDIA_TYPE *pamt = NULL;
+        hr = stream_config->GetFormat(&pamt);
+        // 默认值
+        if (SUCCEEDED(hr) && pamt && pamt->pbFormat) {
+            VIDEOINFOHEADER *vih = reinterpret_cast<VIDEOINFOHEADER *>(pamt->pbFormat);
+            int width = vih->bmiHeader.biWidth;
+            int height = vih->bmiHeader.biHeight;
+            int avg_time = vih->AvgTimePerFrame;
+            qDebug() << "default" << pamt->subtype << width << height << avg_time;
+        }
+        DeleteMediaType(pamt);
+    }
     SAFE_RELEASE(stream_config);
     SAFE_RELEASE(source_filter);
     return true;
