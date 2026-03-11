@@ -558,15 +558,35 @@ bool CameraCore::deviceSetting(HWND winId)
                                  0, 0, NULL);
         ::CoTaskMemFree(cauuid.pElems);
         prop_pages->Release();
+
+        // 刷新下使之立即写入，不然需要关闭程序才会写入设备
+        IMediaControl *mc = NULL;
+        if (SUCCEEDED(mGraph->QueryInterface(IID_IMediaControl, (void**)&mc)))
+        {
+            mc->Stop();
+            mc->Run();
+            mc->Release();
+        }
         return true;
     }
+    // 手动设置参数
+    // IAMVideoProcAmp* proc = nullptr;
+    // HRESULT hr2 = mSourceFilter->QueryInterface(IID_IAMVideoProcAmp, (void**)&proc);
+    // if (SUCCEEDED(hr2))
+    // {
+    //     long value = 20;
+    //     long flags = VideoProcAmp_Flags_Manual;
+    //     // 对比度
+    //     proc->Set(VideoProcAmp_Contrast, value, flags);
+    //     proc->Release();
+    // }
     return false;
 }
 
 bool CameraCore::formatSetting(HWND winId)
 {
     if (!mGraph || !mSourceFilter)
-        return false;;
+        return false;
 
     HRESULT hr = S_FALSE;
     IAMStreamConfig *stream_config = NULL;
