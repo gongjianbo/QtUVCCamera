@@ -57,14 +57,14 @@ ColumnLayout {
     Button {
         text: "设置设备"
         onClicked: {
-            cameraCtrl.popDeviceSetting(Window.window)
+            cameraCtrl.deviceSetting(Window.window)
         }
     }
 
     Button {
         text: "设置格式"
         onClicked: {
-            cameraCtrl.popFormatSetting(Window.window)
+            cameraCtrl.formatSetting(Window.window)
         }
     }
 

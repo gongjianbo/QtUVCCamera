@@ -1,6 +1,22 @@
 #include "CameraCommon.h"
 #include <QDebug>
 
+thread_local static int g_refCount = 0;
+
+void CoInitializeIfNeeded()
+{
+    if (++g_refCount == 1)
+        ::CoInitialize(nullptr);
+}
+
+void CoUninitializeIfNeeded()
+{
+    if (--g_refCount == 0)
+        ::CoUninitialize();
+    if (g_refCount < 0)
+        g_refCount = 0;
+}
+
 ULONG CameraCallback::AddRef()
 {
     return 1;

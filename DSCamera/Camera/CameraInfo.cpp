@@ -27,7 +27,9 @@ QStringList CameraInfo::getFriendlyNames() const
 
 void CameraInfo::updateDeviceList()
 {
+    CoInitializeIfNeeded();
     deviceList = enumDeviceList();
+    CoUninitializeIfNeeded();
     emit deviceListChanged();
 }
 
@@ -163,7 +165,7 @@ QList<CameraDevice> CameraInfo::enumDeviceList() const
 
     // 创建一个builder等下用来枚举格式信息
     ICaptureGraphBuilder2 *graph_builder = NULL;
-    hr = ::CoCreateInstance(CLSID_CaptureGraphBuilder2 , NULL, CLSCTX_INPROC,
+    hr = ::CoCreateInstance(CLSID_CaptureGraphBuilder2 , NULL, CLSCTX_INPROC_SERVER,
                             IID_ICaptureGraphBuilder2, reinterpret_cast<void **>(&graph_builder));
     if (FAILED(hr) || !graph_builder){
         SAFE_RELEASE(device_enum);
@@ -173,10 +175,16 @@ QList<CameraDevice> CameraInfo::enumDeviceList() const
 
     // 3.CreateClassEnumerator 方法返回指向 IEnumMoniker 接口的指针。
     // 若要枚举名字对象，请调用 IEnumMoniker::Next。
-    IMoniker *moniker = NULL;
     IMalloc *malloc_interface = NULL;
-    ::CoGetMalloc(1, reinterpret_cast<LPMALLOC *>(&malloc_interface));
-    qDebug()<<__FUNCTION__;
+    hr = ::CoGetMalloc(1, reinterpret_cast<LPMALLOC *>(&malloc_interface));
+    if (FAILED(hr) || !malloc_interface) {
+        SAFE_RELEASE(malloc_interface);
+        SAFE_RELEASE(graph_builder);
+        SAFE_RELEASE(enum_moniker);
+        SAFE_RELEASE(device_enum);
+        return device_list;
+    }
+    IMoniker *moniker = NULL;
     int counter = 0;
     while (SUCCEEDED(enum_moniker->Next(1, &moniker, NULL)) && moniker)
     {
@@ -203,7 +211,7 @@ QList<CameraDevice> CameraInfo::enumDeviceList() const
         }
 
         VARIANT var;
-        var.vt = VT_BSTR;
+        ::VariantInit(&var);
         hr = prop_bag->Read(L"FriendlyName", &var, NULL);
         if (FAILED(hr)) {
             SAFE_RELEASE(prop_bag);

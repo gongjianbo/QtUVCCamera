@@ -5,6 +5,8 @@
 CameraControl::CameraControl(QObject *parent)
     : QObject{parent}
 {
+    CoInitializeIfNeeded();
+
     // 视频预览回调
     auto preview_callback = [this](const QImage &img){
         // static int i = 0;
@@ -64,7 +66,7 @@ CameraControl::CameraControl(QObject *parent)
 
 CameraControl::~CameraControl()
 {
-
+    CoUninitializeIfNeeded();
 }
 
 CameraInfo *CameraControl::getInfo()
@@ -170,7 +172,7 @@ bool CameraControl::stop()
     return true;
 }
 
-void CameraControl::popDeviceSetting(QQuickWindow *window)
+void CameraControl::deviceSetting(QQuickWindow *window)
 {
     if (getState() == Stopped)
         return;
@@ -178,10 +180,10 @@ void CameraControl::popDeviceSetting(QQuickWindow *window)
     if (window) {
         winId = (HWND)window->winId();
     }
-    QMetaObject::invokeMethod(this, "deviceSetting", Qt::QueuedConnection, Q_ARG(HWND, winId));
+    QMetaObject::invokeMethod(this, "popDeviceSetting", Qt::QueuedConnection, Q_ARG(HWND, winId));
 }
 
-void CameraControl::popFormatSetting(QQuickWindow *window)
+void CameraControl::formatSetting(QQuickWindow *window)
 {
     if (getState() == Stopped)
         return;
@@ -189,15 +191,15 @@ void CameraControl::popFormatSetting(QQuickWindow *window)
     if (window) {
         winId = (HWND)window->winId();
     }
-    QMetaObject::invokeMethod(this, "formatSetting", Qt::QueuedConnection, Q_ARG(HWND, winId));
+    QMetaObject::invokeMethod(this, "popFormatSetting", Qt::QueuedConnection, Q_ARG(HWND, winId));
 }
 
-void CameraControl::deviceSetting(HWND winId)
+void CameraControl::popDeviceSetting(HWND winId)
 {
     core.deviceSetting(winId);
 }
 
-void CameraControl::formatSetting(HWND winId)
+void CameraControl::popFormatSetting(HWND winId)
 {
     stop();
     core.formatSetting(winId);

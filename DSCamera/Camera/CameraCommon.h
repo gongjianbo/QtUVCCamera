@@ -34,6 +34,12 @@ inline void DeleteMediaType(AM_MEDIA_TYPE *type) {
     ::CoTaskMemFree(type);
 }
 
+// COM 初始化
+void CoInitializeIfNeeded();
+
+// COM 释放
+void CoUninitializeIfNeeded();
+
 // 视频回调
 class CameraCallback : public ISampleGrabberCB
 {

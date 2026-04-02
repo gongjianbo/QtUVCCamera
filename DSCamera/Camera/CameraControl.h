@@ -64,15 +64,15 @@ public:
     // 停止
     Q_INVOKABLE bool stop();
     // 设备设置，指定父窗口时模态显示
-    Q_INVOKABLE void popDeviceSetting(QQuickWindow *window = nullptr);
+    Q_INVOKABLE void deviceSetting(QQuickWindow *window = nullptr);
     // 格式设置，指定父窗口时模态显示
-    Q_INVOKABLE void popFormatSetting(QQuickWindow *window = nullptr);
+    Q_INVOKABLE void formatSetting(QQuickWindow *window = nullptr);
 
 private:
     // 弹出directshow的设备设置，指定父窗口时模态显示
-    Q_INVOKABLE void deviceSetting(HWND winId);
+    Q_INVOKABLE void popDeviceSetting(HWND winId);
     // 弹出directshow的格式设置，指定父窗口时模态显示
-    Q_INVOKABLE void formatSetting(HWND winId);
+    Q_INVOKABLE void popFormatSetting(HWND winId);
 
 signals:
     // 新的图像到来

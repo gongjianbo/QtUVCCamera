@@ -1,6 +1,7 @@
 #include "CameraCore.h"
 #include <QDateTime>
 #include <QDebug>
+#include <QDir>
 
 CameraCore::CameraCore()
 {
@@ -42,7 +43,7 @@ bool CameraCore::openDevice(const CameraDevice &device)
         return false;
 
     // 创建Capture Graph Builder.
-    hr = ::CoCreateInstance(CLSID_CaptureGraphBuilder2, NULL, CLSCTX_INPROC, IID_ICaptureGraphBuilder2, reinterpret_cast<void **>(&mBuilder));
+    hr = ::CoCreateInstance(CLSID_CaptureGraphBuilder2, NULL, CLSCTX_INPROC_SERVER, IID_ICaptureGraphBuilder2, reinterpret_cast<void **>(&mBuilder));
     if (FAILED(hr))
         return false;
     mBuilder->SetFiltergraph(mGraph);
@@ -114,19 +115,22 @@ bool CameraCore::openDevice(const CameraDevice &device)
 
     if (mState.recording) {
         IBaseFilter *mux = NULL;
-        // 设置输出视频文件位置
         wchar_t path[MAX_PATH] = {0};
-        mState.recordPath.toWCharArray(path);
+        const QString native_path = QDir::toNativeSeparators(mState.recordPath).left(MAX_PATH - 1);
+        const int path_len = native_path.toWCharArray(path);
+        path[path_len] = L'\0';
         hr = mBuilder->SetOutputFileName(&MEDIASUBTYPE_Avi, path, &mux, NULL);
-        if (FAILED(hr))
+        if (FAILED(hr) || !mux) {
+            SAFE_RELEASE(mux);
             return false;
+        }
         // RenderStream最后一个参数为空会弹出activemovie窗口显示预览视频
         hr = mBuilder->RenderStream(&PIN_CATEGORY_CAPTURE, &MEDIATYPE_Video,
                                     mSourceFilter, mPreviewFilter, mux);
+        // 参考别人的代码，用完直接release
+        SAFE_RELEASE(mux);
         if (FAILED(hr))
             return false;
-        // 参考别人的代码，用完直接release
-        mux->Release();
     } else {
         // RenderStream最后一个参数为空会弹出activemovie窗口显示预览视频
         hr = mBuilder->RenderStream(&PIN_CATEGORY_CAPTURE, &MEDIATYPE_Video,
@@ -299,7 +303,7 @@ bool CameraCore::setFormat(int width, int height, LONGLONG avgTime, GUID type)
     SAFE_RELEASE(stream_config);
     if (ret) {
         mSetting.width = width;
-        mSetting.height = height; 
+        mSetting.height = height;
     }
     return ret;
 }
@@ -312,18 +316,21 @@ bool CameraCore::play()
     if (FAILED(mMediaControl->Run()))
         return false;
 
-    AM_MEDIA_TYPE amt = {0};
-    HRESULT hr = mPreviewGrabber->GetConnectedMediaType(&amt);
+    AM_MEDIA_TYPE preview_type = {0};
+    HRESULT hr = mPreviewGrabber->GetConnectedMediaType(&preview_type);
     if (FAILED(hr))
         return false;
-    VIDEOINFOHEADER *vih = reinterpret_cast<VIDEOINFOHEADER *>(amt.pbFormat);
-    if (!vih)
+    VIDEOINFOHEADER *vih = reinterpret_cast<VIDEOINFOHEADER *>(preview_type.pbFormat);
+    if (!vih) {
+        FreeMediaType(preview_type);
         return false;
+    }
 
     int width = vih->bmiHeader.biWidth;
     int height = vih->bmiHeader.biHeight;
     LONGLONG avg_time = vih->AvgTimePerFrame;
-    GUID sub_type = amt.subtype;
+    GUID sub_type = preview_type.subtype;
+    FreeMediaType(preview_type);
 
     mPreviewCallback.setSize(width, height);
     mPreviewCallback.setSubtype(sub_type);
@@ -332,15 +339,17 @@ bool CameraCore::play()
 
     mStillCallback.setSize(width, height);
     mStillCallback.setSubtype(sub_type);
-    if (mStillGrabber && SUCCEEDED(mStillGrabber->GetConnectedMediaType(&amt))) {
+    AM_MEDIA_TYPE still_type = {0};
+    if (mStillGrabber && SUCCEEDED(mStillGrabber->GetConnectedMediaType(&still_type))) {
         // 可能 StillPin 的格式没有被设置成功
-        VIDEOINFOHEADER *vih = reinterpret_cast<VIDEOINFOHEADER *>(amt.pbFormat);
+        VIDEOINFOHEADER *vih = reinterpret_cast<VIDEOINFOHEADER *>(still_type.pbFormat);
         if (vih) {
             mStillCallback.setSize(vih->bmiHeader.biWidth, vih->bmiHeader.biHeight);
-            mStillCallback.setSubtype(amt.subtype);
-            qDebug()<<__FUNCTION__<<"still"<<vih->bmiHeader.biWidth<<vih->bmiHeader.biHeight<<amt.subtype;
+            mStillCallback.setSubtype(still_type.subtype);
+            qDebug()<<__FUNCTION__<<"still"<<vih->bmiHeader.biWidth<<vih->bmiHeader.biHeight<<still_type.subtype;
         }
     }
+    FreeMediaType(still_type);
     mStillCallback.start();
 
     mSetting.width = width;
@@ -407,6 +416,12 @@ void CameraCore::releaseGraph()
     if (mMediaControl) {
         mMediaControl->Stop();
     }
+    if (mStillGrabber) {
+        mStillGrabber->SetCallback(NULL, 1);
+    }
+    if (mPreviewGrabber) {
+        mPreviewGrabber->SetCallback(NULL, 1);
+    }
     SAFE_RELEASE(mMediaControl);
     if (mGraph) {
         if (mSourceFilter) {
@@ -436,28 +451,34 @@ bool CameraCore::bindFilter(const QString &deviceName)
     HRESULT hr = S_FALSE;
 
     // 调用 CoCreateInstance 以创建系统设备枚举器的实例
-    ICreateDevEnum *devce_enum = NULL;
+    ICreateDevEnum *device_enum = NULL;
     hr = ::CoCreateInstance(CLSID_SystemDeviceEnum, NULL, CLSCTX_INPROC_SERVER,
-                            IID_ICreateDevEnum, reinterpret_cast<void **>(&devce_enum));
-    if (FAILED(hr)) {
+                            IID_ICreateDevEnum, reinterpret_cast<void **>(&device_enum));
+    if (FAILED(hr) || !device_enum) {
         return false;
     }
 
     // 2.调用 ICreateDevEnum::CreateClassEnumerator，并将设备类别指定为 GUID
     IEnumMoniker *enum_moniker = NULL;
-    hr = devce_enum->CreateClassEnumerator(CLSID_VideoInputDeviceCategory, &enum_moniker, 0);
-    if (FAILED(hr)) {
-        SAFE_RELEASE(devce_enum);
+    hr = device_enum->CreateClassEnumerator(CLSID_VideoInputDeviceCategory, &enum_moniker, 0);
+    if (FAILED(hr) || !enum_moniker) {
+        SAFE_RELEASE(device_enum);
         return false;
     }
     enum_moniker->Reset();
 
     // CreateClassEnumerator 方法返回指向 IEnumMoniker 接口的指针
     // 若要枚举名字对象，请调用 IEnumMoniker::Next。
-    IMoniker *moniker = NULL;
     IMalloc *malloc_interface = NULL;
-    ::CoGetMalloc(1, reinterpret_cast<LPMALLOC *>(&malloc_interface));
-    while (enum_moniker->Next(1, &moniker, NULL) == S_OK)
+    hr = ::CoGetMalloc(1, reinterpret_cast<LPMALLOC *>(&malloc_interface));
+    if (FAILED(hr) || !malloc_interface) {
+        SAFE_RELEASE(malloc_interface);
+        SAFE_RELEASE(enum_moniker);
+        SAFE_RELEASE(device_enum);
+        return false;
+    }
+    IMoniker *moniker = NULL;
+    while (SUCCEEDED(enum_moniker->Next(1, &moniker, NULL)) && moniker)
     {
         BSTR name_str = NULL;
         hr = moniker->GetDisplayName(NULL, NULL, &name_str);
@@ -488,7 +509,7 @@ bool CameraCore::bindFilter(const QString &deviceName)
     SAFE_RELEASE(malloc_interface);
     SAFE_RELEASE(moniker);
     SAFE_RELEASE(enum_moniker);
-    SAFE_RELEASE(devce_enum);
+    SAFE_RELEASE(device_enum);
     return !!mSourceFilter;
 }
 
@@ -520,8 +541,7 @@ void CameraCore::freePin(IGraphBuilder *inGraph, IBaseFilter *inFilter) const
                     PIN_INFO pin_info;
                     if (SUCCEEDED(connected_pin->QueryPinInfo(&pin_info)))
                     {
-                        pin_info.pFilter->Release();
-                        if (pin_info.dir == PINDIR_INPUT)
+                        if (pin_info.dir == PINDIR_INPUT && pin_info.pFilter)
                         {
                             // 如果连接对方是输入Pin(说明当前枚举得到的是输出Pin)
                             // 则递归调用NukeDownstream函数，首先将下一级（乃至再下一级）
@@ -531,6 +551,7 @@ void CameraCore::freePin(IGraphBuilder *inGraph, IBaseFilter *inFilter) const
                             inGraph->Disconnect(pin);
                             inGraph->RemoveFilter(pin_info.pFilter);
                         }
+                        SAFE_RELEASE(pin_info.pFilter);
                     }
                     connected_pin->Release();
                 }
